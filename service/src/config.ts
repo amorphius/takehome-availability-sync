@@ -1,0 +1,56 @@
+export interface Config {
+  port: number;
+  databaseUrl: string;
+  portalUrl: string;
+  portalApiKey: string;
+  portalTimeoutMs: number;
+  portalRateLimitPerMinute: number;
+  workerConcurrency: number;
+  workerPollMs: number;
+  maxAttempts: number;
+  leaseSeconds: number;
+  logLevel: string;
+}
+
+export class ConfigError extends Error {}
+
+type Env = Record<string, string | undefined>;
+
+function integer(env: Env, name: string, fallback: number, min: number, max = Number.MAX_SAFE_INTEGER): number {
+  const raw = env[name];
+  if (raw === undefined || raw.trim() === "") return fallback;
+  const value = Number(raw);
+  if (!Number.isInteger(value) || value < min || value > max) {
+    throw new ConfigError(`${name} must be an integer between ${min} and ${max}, got "${raw}"`);
+  }
+  return value;
+}
+
+function string(env: Env, name: string, fallback: string): string {
+  const raw = env[name];
+  if (raw === undefined || raw.trim() === "") return fallback;
+  return raw;
+}
+
+const LOG_LEVELS = ["fatal", "error", "warn", "info", "debug", "trace", "silent"];
+
+/** OPS-01: configuration from the environment; an invalid value names the variable. */
+export function loadConfig(env: Env = process.env): Config {
+  const logLevel = string(env, "LOG_LEVEL", "info");
+  if (!LOG_LEVELS.includes(logLevel)) {
+    throw new ConfigError(`LOG_LEVEL must be one of ${LOG_LEVELS.join(", ")}, got "${logLevel}"`);
+  }
+  return {
+    port: integer(env, "PORT", 3000, 0, 65535),
+    databaseUrl: string(env, "DATABASE_URL", "postgres://sync:sync@localhost:5432/sync"),
+    portalUrl: string(env, "PORTAL_URL", "http://localhost:4000").replace(/\/+$/, ""),
+    portalApiKey: string(env, "PORTAL_API_KEY", "sol-demo-key"),
+    portalTimeoutMs: integer(env, "PORTAL_TIMEOUT_MS", 5000, 1),
+    portalRateLimitPerMinute: integer(env, "PORTAL_RATE_LIMIT_PER_MINUTE", 30, 1),
+    workerConcurrency: integer(env, "WORKER_CONCURRENCY", 4, 1, 100),
+    workerPollMs: integer(env, "WORKER_POLL_MS", 250, 1),
+    maxAttempts: integer(env, "MAX_ATTEMPTS", 8, 1),
+    leaseSeconds: integer(env, "LEASE_SECONDS", 60, 1),
+    logLevel,
+  };
+}
