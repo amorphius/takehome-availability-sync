@@ -8,6 +8,7 @@ import { SlidingWindowLimiter } from "./sync/rateLimiter.ts";
 import { Worker } from "./sync/worker.ts";
 import { buildServer } from "./http/server.ts";
 import { createMetrics } from "./observability/metrics.ts";
+import { createQueueGauges } from "./observability/queueGauges.ts";
 
 let config;
 try {
@@ -27,6 +28,7 @@ log.info({ applied }, "database migrated");
 
 const repository = new SyncRepository(pool);
 const metrics = createMetrics();
+const queueGauges = createQueueGauges(metrics.registry, pool, log);
 const worker = new Worker({
   observer: metrics.observer,
   store: repository,
@@ -44,4 +46,5 @@ const worker = new Worker({
 const app = buildServer({ logger: log, repository, metrics });
 await app.listen({ port: config.port, host: "0.0.0.0" });
 await worker.start();
+queueGauges.start(5000);
 log.info({ port: config.port, portalUrl: config.portalUrl }, "availability sync service listening");

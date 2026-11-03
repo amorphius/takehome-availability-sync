@@ -77,3 +77,32 @@ test("OBS-05: a job that gives up is counted by its last error code", async () =
   assert.equal(m.get("sync_portal_paused"), 0);
   await app.close();
 });
+
+test("OBS-03: sync_jobs{state} and the oldest pending age are read from the database", async () => {
+  const { createQueueGauges } = await import("../../src/observability/queueGauges.ts");
+  const { silentLogger } = await import("../helpers/app.ts");
+  const metrics = createMetrics();
+  const gauges = createQueueGauges(metrics.registry, pool, silentLogger());
+  const { app } = testServer(pool, metrics);
+  const { store } = testWorker(pool, { portalUrl: portal.url });
+  const old = await store.acceptUpdate({ ...update, from: "2026-10-01", to: "2026-10-02" });
+  await pool.query("update updates set received_at = now() - interval '90 seconds' where id = $1", [old.updateId]);
+  await store.acceptUpdate({ ...update, from: "2026-11-01", to: "2026-11-02" });
+  await store.acceptUpdate({ ...update, accommodationId: "acc-1004" });
+  await pool.query("update sync_jobs set state = 'done', finished_at = now() where accommodation_id = 'acc-1004'");
+
+  await gauges.refresh();
+  const m = parse((await app.inject({ method: "GET", url: "/metrics" })).body);
+  assert.equal(m.get('sync_jobs{state="pending"}'), 2);
+  assert.equal(m.get('sync_jobs{state="done"}'), 1);
+  assert.equal(m.get('sync_jobs{state="failed"}'), 0, "every state series exists");
+  const age = m.get("sync_oldest_pending_job_age_seconds")!;
+  assert.ok(age >= 89 && age < 100, `oldest pending age ${age}s`);
+
+  await pool.query("update sync_jobs set state = 'done'");
+  await gauges.refresh();
+  const after = parse((await app.inject({ method: "GET", url: "/metrics" })).body);
+  assert.equal(after.get('sync_jobs{state="pending"}'), 0);
+  assert.equal(after.get("sync_oldest_pending_job_age_seconds"), 0, "0 when nothing is owed");
+  await app.close();
+});
