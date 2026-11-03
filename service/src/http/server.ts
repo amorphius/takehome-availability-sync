@@ -18,6 +18,17 @@ export function buildServer({ logger, repository, metrics }: ServerDeps): Fastif
   // pino's Logger type is stricter than FastifyBaseLogger only in optional fields; the instance is compatible.
   const app = Fastify({ loggerInstance: logger as unknown as FastifyBaseLogger, disableRequestLogging: true });
 
+  // OBS-01: one line per request with reqId, method, url, statusCode and durationMs. The scrape and probe
+  // endpoints log at debug so they do not drown the lines that matter.
+  app.addHook("onResponse", (request, reply, done) => {
+    const level = request.url === "/metrics" || request.url === "/health" ? "debug" : "info";
+    request.log[level](
+      { method: request.method, url: request.url, statusCode: reply.statusCode, durationMs: Math.round(reply.elapsedTime) },
+      "request completed",
+    );
+    done();
+  });
+
   app.setErrorHandler((error, request, reply) => {
     if (error instanceof ApiError) {
       return reply.code(error.status).send({ error: { code: error.code, message: error.message } });
