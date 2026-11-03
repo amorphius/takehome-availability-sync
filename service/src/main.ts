@@ -7,6 +7,7 @@ import { PortalClient } from "./sync/portalClient.ts";
 import { SlidingWindowLimiter } from "./sync/rateLimiter.ts";
 import { Worker } from "./sync/worker.ts";
 import { buildServer } from "./http/server.ts";
+import { createMetrics } from "./observability/metrics.ts";
 
 let config;
 try {
@@ -25,7 +26,9 @@ const applied = await migrate(pool);
 log.info({ applied }, "database migrated");
 
 const repository = new SyncRepository(pool);
+const metrics = createMetrics();
 const worker = new Worker({
+  observer: metrics.observer,
   store: repository,
   portal: new PortalClient({ baseUrl: config.portalUrl, apiKey: config.portalApiKey, timeoutMs: config.portalTimeoutMs }),
   limiter: new SlidingWindowLimiter(config.portalRateLimitPerMinute),
@@ -38,7 +41,7 @@ const worker = new Worker({
   },
 });
 
-const app = buildServer({ logger: log, repository });
+const app = buildServer({ logger: log, repository, metrics });
 await app.listen({ port: config.port, host: "0.0.0.0" });
 await worker.start();
 log.info({ port: config.port, portalUrl: config.portalUrl }, "availability sync service listening");

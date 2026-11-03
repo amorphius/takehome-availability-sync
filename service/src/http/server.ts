@@ -5,13 +5,16 @@ import type { SyncRepository } from "../sync/repository.ts";
 import { registerUpdatesRoute } from "./routes/updates.ts";
 import { registerStatusRoute } from "./routes/status.ts";
 import { registerHealthRoute } from "./routes/health.ts";
+import { registerMetricsRoute } from "./routes/metrics.ts";
+import type { Metrics } from "../observability/metrics.ts";
 
 export interface ServerDeps {
   logger: Logger;
   repository: SyncRepository;
+  metrics: Metrics;
 }
 
-export function buildServer({ logger, repository }: ServerDeps): FastifyInstance {
+export function buildServer({ logger, repository, metrics }: ServerDeps): FastifyInstance {
   // pino's Logger type is stricter than FastifyBaseLogger only in optional fields; the instance is compatible.
   const app = Fastify({ loggerInstance: logger as unknown as FastifyBaseLogger, disableRequestLogging: true });
 
@@ -31,8 +34,9 @@ export function buildServer({ logger, repository }: ServerDeps): FastifyInstance
     reply.code(404).send({ error: { code: "NOT_FOUND", message: "Resource not found" } }),
   );
 
-  registerUpdatesRoute(app, repository);
+  registerUpdatesRoute(app, repository, metrics);
   registerStatusRoute(app, repository);
   registerHealthRoute(app, repository.pool);
+  registerMetricsRoute(app, metrics.registry);
   return app;
 }
