@@ -105,6 +105,38 @@ export class SyncRepository {
     return { updateId, chunks: chunks.length };
   }
 
+  /**
+   * SYNC-02: claim the oldest runnable pending job and mark it in progress in one statement.
+   * SYNC-03: a job is runnable only when no older job of the same accommodation is pending or in progress.
+   * `FOR UPDATE SKIP LOCKED` lets concurrent claimers (slots or processes) never pick the same row.
+   */
+  async claimNext(): Promise<Job | null> {
+    const result = await this.pool.query<JobRow>(
+      `update sync_jobs set state = 'in_progress', locked_at = now(), attempts = attempts + 1
+       where id = (
+         select j.id from sync_jobs j
+         where j.state = 'pending' and j.next_attempt_at <= now()
+           and not exists (
+             select 1 from sync_jobs o
+             where o.accommodation_id = j.accommodation_id and o.seq < j.seq
+               and o.state in ('pending', 'in_progress'))
+         order by j.seq
+         for update skip locked
+         limit 1)
+       returning *`,
+    );
+    const row = result.rows[0];
+    return row ? toJob(row) : null;
+  }
+
+  /** SYNC-06: a delivered job. */
+  async markDone(jobId: string): Promise<void> {
+    await this.pool.query(
+      "update sync_jobs set state = 'done', finished_at = now(), locked_at = null where id = $1",
+      [jobId],
+    );
+  }
+
   async jobsOfUpdate(updateId: string): Promise<Job[]> {
     const result = await this.pool.query<JobRow>("select * from sync_jobs where update_id = $1 order by seq", [updateId]);
     return result.rows.map(toJob);
