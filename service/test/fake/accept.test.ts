@@ -1,0 +1,56 @@
+import { test, before, after } from "node:test";
+import assert from "node:assert/strict";
+import { testPool } from "../helpers/db.ts";
+import { testServer } from "../helpers/app.ts";
+import type { Pool } from "../../src/db/pool.ts";
+
+let pool: Pool;
+before(async () => {
+  pool = await testPool();
+});
+after(async () => {
+  await pool.end();
+});
+
+const body = { accommodationId: "acc-1003", from: "2026-10-01", to: "2026-11-15", available: false, pricePerNight: 99.5 };
+
+test("API-01 DATA-02: POST /updates answers 202 and the update with its jobs is already committed", async () => {
+  const { app, repository } = testServer(pool);
+  const response = await app.inject({ method: "POST", url: "/updates", payload: body });
+  assert.equal(response.statusCode, 202);
+  const json = response.json();
+  assert.match(json.updateId, /^[0-9a-f-]{36}$/);
+  assert.equal(json.accommodationId, "acc-1003");
+  assert.equal(json.chunks, 2);
+  assert.equal(json.status, "pending");
+
+  const update = await pool.query("select * from updates where id = $1", [json.updateId]);
+  assert.equal(update.rowCount, 1);
+  assert.deepEqual(
+    { from: update.rows[0].from_date, to: update.rows[0].to_date, available: update.rows[0].available, price: update.rows[0].price_per_night },
+    { from: "2026-10-01", to: "2026-11-15", available: false, price: 99.5 },
+  );
+  const jobs = await repository.jobsOfUpdate(json.updateId);
+  assert.deepEqual(
+    jobs.map((j) => ({ from: j.from, to: j.to, state: j.state, attempts: j.attempts, price: j.pricePerNight })),
+    [
+      { from: "2026-10-01", to: "2026-10-31", state: "pending", attempts: 0, price: 99.5 },
+      { from: "2026-11-01", to: "2026-11-15", state: "pending", attempts: 0, price: 99.5 },
+    ],
+  );
+  await app.close();
+});
+
+test("API-02: invalid bodies get the documented error shape over HTTP", async () => {
+  const { app } = testServer(pool);
+  const bad = await app.inject({ method: "POST", url: "/updates", payload: { ...body, to: "2026-02-30" } });
+  assert.equal(bad.statusCode, 400);
+  assert.deepEqual(bad.json().error.code, "INVALID_DATE");
+  const notJson = await app.inject({ method: "POST", url: "/updates", payload: "{nope", headers: { "content-type": "application/json" } });
+  assert.equal(notJson.statusCode, 400);
+  assert.equal(notJson.json().error.code, "INVALID_BODY");
+  const unknown = await app.inject({ method: "GET", url: "/nothing" });
+  assert.equal(unknown.statusCode, 404);
+  assert.equal(unknown.json().error.code, "NOT_FOUND");
+  await app.close();
+});

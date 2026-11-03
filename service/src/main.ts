@@ -2,6 +2,8 @@ import { loadConfig, ConfigError } from "./config.ts";
 import { createLogger } from "./observability/logger.ts";
 import { createPool } from "./db/pool.ts";
 import { migrate } from "./db/migrate.ts";
+import { SyncRepository } from "./sync/repository.ts";
+import { buildServer } from "./http/server.ts";
 
 let config;
 try {
@@ -18,4 +20,8 @@ const log = createLogger(config.logLevel);
 const pool = createPool(config.databaseUrl);
 const applied = await migrate(pool);
 log.info({ applied }, "database migrated");
-log.info({ port: config.port, portalUrl: config.portalUrl }, "availability sync service starting");
+
+const repository = new SyncRepository(pool);
+const app = buildServer({ logger: log, repository });
+await app.listen({ port: config.port, host: "0.0.0.0" });
+log.info({ port: config.port, portalUrl: config.portalUrl }, "availability sync service listening");
