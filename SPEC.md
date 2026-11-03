@@ -1,22 +1,29 @@
 # SPEC — Availability sync service
 
-Written before coding. It states what will be built, the decisions behind it and how
-to tell that it works. It may be refined while building; the first commit is the
-starting point.
+Written before coding. Sections 1–4 say what the system is and why it is shaped
+this way; section 5 lists the decisions; section 6 is the list of atomic
+requirements that the commits implement. Every commit that implements behaviour
+names the requirement IDs it covers in its subject, for example
+`feat(sync): schedule retry from Retry-After on 429 [SYNC-11]`, and carries the
+test that verifies them. `scripts/trace.sh` (OPS-04) reports which commits and
+tests cover each ID.
+
+IDs are stable: a requirement that is dropped is marked *withdrawn*, never
+renumbered.
 
 ## 1. Goal
 
-A backend service that accepts availability and price updates for accommodations,
+A backend service that accepts availability and price updates for accommodations
 and pushes them to Portal Sol so that:
 
 - no accepted update is ever lost, whether the portal fails, throttles, or the
-  service itself restarts;
+  service restarts;
 - the portal's request limit is respected;
 - the portal ends up in the state the manager asked for last;
 - an operator can tell from logs, metrics and one status endpoint whether
   synchronisation is healthy.
 
-Scope is bounded to 3–4 hours of work. Section 10 lists what is deliberately
+Scope is bounded to 3–4 hours of work. Section 9 lists what is deliberately
 left out.
 
 ## 2. Observed portal behaviour
@@ -35,7 +42,7 @@ timeout) and the admin request log was read. Observed:
 | Range limit | 31 days inclusive per `PUT`; longer ranges are `400 RANGE_TOO_LARGE`. |
 | Idempotency | `PUT` repeats are safe (documented). |
 
-These numbers drive the defaults in section 8; all are configurable.
+These numbers drive the defaults in section 7; all are configurable.
 
 ## 3. Architecture
 
@@ -49,7 +56,7 @@ POST /updates ──► validate ──► INSERT update + sync_jobs (one txn) �
                                         │ claim job: FOR UPDATE SKIP LOCKED,
                                         │ FIFO per accommodation
                                         ▼
-                               rate limiter (sliding window, shared in-process)
+                               rate limiter (sliding window, in-process)
                                         ▼
                                portal client (timeout, classify outcome)
                                         ▼
@@ -59,32 +66,17 @@ GET /metrics  ◄── prom-client registry (+ gauges refreshed from DB every 5
 GET /health
 ```
 
-Why this shape:
-
-- **PostgreSQL as the queue (transactional outbox).** The accepted update and its
-  jobs are written in one transaction before the `202` is returned. Durability is
-  the database, not the worker, so a crash at any later point loses nothing. No
-  extra broker to run or explain.
-- **Chunk per 31-day range** because that is the portal's unit of work; each
-  chunk is one idempotent `PUT`, so retrying after a timeout is safe.
-- **One worker in the same process** keeps the exercise small; the claim query is
-  written so several processes could run it safely (section 5.6).
-
-Libraries: Fastify 5 (HTTP, JSON-schema validation), `pg` (plain SQL, no ORM),
-`pino` (structured logs), `prom-client` (metrics). Node's built-in test runner.
-TypeScript is run directly by Node 24 (type stripping), `tsc` only type-checks.
-
 ## 4. Data model
 
 ```sql
 updates (
-  id              uuid primary key,
+  id               uuid primary key,
   accommodation_id text not null,
-  from_date       date not null,
-  to_date         date not null,
-  available       boolean not null,
-  price_per_night numeric(10,2) not null,
-  received_at     timestamptz not null default now()
+  from_date        date not null,
+  to_date          date not null,
+  available        boolean not null,
+  price_per_night  numeric(10,2) not null,
+  received_at      timestamptz not null default now()
 )
 
 sync_jobs (
@@ -101,6 +93,7 @@ sync_jobs (
   next_attempt_at  timestamptz not null default now(),
   locked_at        timestamptz,
   last_error_code  text,
+  last_error_message text,
   last_error_at    timestamptz,
   finished_at      timestamptz
 )
@@ -108,177 +101,90 @@ sync_jobs (
 ```
 
 `updates` is the manager's intent and is never modified. `sync_jobs` is the work
-queue; the update's status is derived from its jobs (section 6).
+queue; an update's status is derived from its jobs (API-05).
 
-## 5. Sync semantics
+## 5. Decisions
 
-### 5.1 Accepting an update
-
-`POST /updates` validates the body (section 7), splits the range into chunks of
-at most 31 days, and inserts the update and its jobs in one transaction. Reply is
-`202 Accepted` with the update id. The accommodation's existence is **not** checked
-against the portal: that would spend the request budget on every call. An unknown
-accommodation surfaces as a `failed` job with `NOT_FOUND` in the sync status.
-
-### 5.2 Ordering: last writer wins
-
-Two updates for the same accommodation may overlap in dates. The portal must end
-with the later one. Rule: **jobs of one accommodation are processed strictly in
-arrival order, one at a time.** A newer job never starts while an older job of the
-same accommodation is pending or in progress, even if the older one is waiting out
-a backoff. Different accommodations proceed in parallel.
-
-This is simpler than tracking per-day versions and is correct because arrival
-order equals the manager's intent order. Cost: one slow accommodation does not slow
-down others, but a failing update blocks later updates for the *same*
-accommodation until it succeeds or is marked failed (section 5.4).
-
-### 5.3 Superseding
-
-When a new update arrives, pending (not in-progress) jobs of the same
-accommodation whose date range is **fully covered** by the new update are marked
-`superseded` and never sent: the new update's chunks will overwrite every day
-they would have set. Partially overlapping jobs still run, in order. This drops
-wasted portal calls when a manager edits the same week repeatedly.
-
-### 5.4 Outcomes and retries
-
-| Portal response | Classification | Action |
+| ID | Decision | Why, and what it costs |
 |---|---|---|
-| `200` | success | job `done` |
-| `429` + `Retry-After` | rate limited | job back to `pending` with `next_attempt_at = now + Retry-After`; **does not count as an attempt**; the limiter pauses *all* portal calls until then |
-| `503` | transient | retry with backoff |
-| timeout / connection error | transient (request may have been applied; `PUT` is idempotent) | retry with backoff |
-| `400`, `404`, `401` | permanent | job `failed` immediately (our bug, bad data, or configuration) |
-| `5xx` other | transient | retry with backoff |
+| D-01 | PostgreSQL is the queue (transactional outbox); no broker. | The update and its jobs are committed before the `202`, so a crash at any later point loses nothing. One less system to run and explain. |
+| D-02 | One job per 31-day chunk, one idempotent `PUT` per job. | The portal's unit of work. Idempotency makes replay after a timeout safe without read-back. |
+| D-03 | Jobs of one accommodation run strictly in arrival order, one at a time; accommodations run in parallel. | Guarantees last writer wins on overlapping dates without per-day versioning. Cost: a failing update blocks later updates of the *same* accommodation until it succeeds or gives up. |
+| D-04 | A new update supersedes pending jobs of the same accommodation whose range it fully covers. | Drops wasted calls when a manager edits the same week repeatedly. Partial overlaps still run, in order. |
+| D-05 | Accommodation existence is not checked against the portal at accept time. | A check would spend the request budget on every call. An unknown id surfaces as a `failed` job with `NOT_FOUND`. |
+| D-06 | Rate limiting is an in-process sliding window set to the observed limit; a `429` pauses every slot until `Retry-After`. | Mirrors the portal's rule exactly, so `429` stays the exception. One `429` never cascades. Cost: two replicas would need a shared limiter (section 9). |
+| D-07 | Transient failures retry with capped exponential backoff; after `MAX_ATTEMPTS` a job is `failed` and stays visible. | Bounded retry keeps a dead accommodation from blocking forever; a failed job is an alert, never silent loss. |
+| D-08 | Per-attempt portal timeout of 5 s. | p95 is under 1 s; observed hangs were far longer. 5 s loses almost no good responses. |
+| D-09 | Sync status gives one top-level `status`, job counts, `nextAttemptAt`, `lastError`, and the 20 latest updates. | The first field answers "is it synced"; the counts and times say whether waiting will fix it; the list lets support match what the manager did with what the portal got. |
+| D-10 | Fastify 5, `pg` with plain SQL, `pino`, `prom-client`; Node's built-in test runner; TypeScript run directly by Node 24, `tsc` only type-checks. | Few dependencies, no build step, nothing a reviewer has to learn. |
+| D-11 | Single process, but the claim query is written for several (`FOR UPDATE SKIP LOCKED`) and stale leases are reclaimed. | Correct today, scales out later without redesign. |
+| D-12 | Deterministic failure tests use an in-process fake portal; the real Portal Sol is used for end-to-end tests only. | The real portal's failures are random and rate-bound; a fake makes `429`, `503` and timeout behaviour testable in milliseconds. |
 
-Backoff: `min(60 s, 1 s · 2^attempt)` plus up to 50 % random jitter. After
-`MAX_ATTEMPTS` (default 8, about 4 minutes of retrying) the job becomes `failed`.
-A `failed` job stays visible in status and metrics; it is an alert, not silent
-loss. Re-queueing failed jobs is a one-line SQL today and listed as the first
-follow-up (section 10).
+## 6. Requirements
 
-### 5.5 Respecting the limit
+"Verified by" names the test kind: **unit** (no I/O), **fake** (in-process fake
+portal + real PostgreSQL), **portal** (real Portal Sol + real PostgreSQL),
+**manual** (a documented `curl`).
 
-An in-process **sliding-window limiter** mirrors the observed portal rule: at most
-`PORTAL_RATE_LIMIT_PER_MINUTE` (default 30) call starts in any 60 s window, with
-every attempt counted whatever its outcome. The default is the observed limit;
-the limiter's own accuracy, not a safety margin, keeps `429` rare. If the portal
-still answers `429`, the limiter pauses every slot until `Retry-After` has passed,
-so one `429` never cascades into more. Worker concurrency (default 4) bounds
-in-flight requests so a burst of hangs cannot pile up.
+### DATA — persistence
 
-### 5.6 Claiming work and crash safety
-
-```sql
-UPDATE sync_jobs SET state = 'in_progress', locked_at = now(), attempts = attempts + 1
-WHERE id = (
-  SELECT j.id FROM sync_jobs j
-  WHERE j.state = 'pending' AND j.next_attempt_at <= now()
-    AND NOT EXISTS (SELECT 1 FROM sync_jobs o
-                    WHERE o.accommodation_id = j.accommodation_id
-                      AND o.seq < j.seq AND o.state IN ('pending', 'in_progress'))
-  ORDER BY j.seq
-  FOR UPDATE SKIP LOCKED
-  LIMIT 1)
-RETURNING *;
-```
-
-`FOR UPDATE SKIP LOCKED` lets several slots (or processes) claim concurrently
-without double-processing. If the process dies mid-request, the job stays
-`in_progress`; on start-up, and every minute, jobs whose `locked_at` is older than
-`LEASE_SECONDS` (default 60, well above the request timeout) are returned to
-`pending`. Replaying them is safe because the `PUT` is idempotent.
-
-Portal timeout: 5 s per attempt (p95 is under 1 s; hangs observed were far
-longer, so 5 s loses almost no good responses).
-
-## 6. HTTP API
-
-All bodies are JSON. Errors use the portal's shape:
-`{ "error": { "code": "...", "message": "..." } }`.
-
-### `POST /updates` → `202`
-
-Request as in the assignment. Validation: `accommodationId` non-empty string;
-`from`, `to` valid `YYYY-MM-DD` calendar dates with `from <= to` and at most
-366 days; `available` boolean; `pricePerNight` finite number `>= 0`. Otherwise
-`400 INVALID_BODY` / `INVALID_DATE`.
-
-```json
-{ "updateId": "uuid", "accommodationId": "acc-1003", "chunks": 1, "status": "pending" }
-```
-
-### `GET /accommodations/:id/sync-status` → `200` | `404`
-
-`404 NOT_FOUND` if the service has never received an update for this id (it knows
-nothing about it). Otherwise:
-
-```json
-{
-  "accommodationId": "acc-1003",
-  "status": "synced",
-  "jobs": { "pending": 0, "inProgress": 0, "done": 3, "failed": 0, "superseded": 1 },
-  "lastSyncedAt": "2026-11-03T18:20:11.512Z",
-  "nextAttemptAt": null,
-  "lastError": null,
-  "updates": [
-    { "updateId": "…", "from": "2026-10-01", "to": "2026-10-07", "available": true,
-      "pricePerNight": 120, "receivedAt": "…", "status": "synced",
-      "chunks": { "total": 1, "done": 1 } }
-  ]
-}
-```
-
-- `status` answers the operator's first question: `synced` (nothing outstanding),
-  `pending` (work queued or in flight, including backoff), or `failed` (at least
-  one job gave up). `failed` wins over `pending`.
-- `lastError` is `{ "code", "message", "at" }` of the most recent failed attempt,
-  kept even after a later success so an operator can see what happened.
-- `updates` lists the 20 most recent updates, newest first, each with its derived
-  status (`pending`, `syncing`, `synced`, `failed`, `superseded`).
-
-Why this shape: the top-level `status` is enough for a dashboard or a
-"why is my calendar wrong" ticket; the counts and `nextAttemptAt` say whether
-waiting will fix it; `updates` lets support match what the manager did with what
-the portal got.
-
-### `GET /metrics` → Prometheus text format. `GET /health` → `200 { "status": "ok" }`
-when the database answers.
-
-## 7. Observability
-
-**Logs**: pino JSON to stdout, one line per event, with `updateId`, `jobId`,
-`accommodationId`, `attempt`, `outcome`, `portalStatus`, `durationMs`. Request logs
-carry a `reqId`. Levels: `info` for accepted updates and job completion, `warn`
-for retries and rate-limit pauses, `error` for jobs marked failed.
-
-**Metrics** (`prom-client`, plus default process metrics):
-
-| Metric | Type | Labels | Meaning |
-|---|---|---|---|
-| `sync_jobs` | gauge | `state` | jobs per state, refreshed from the DB every 5 s |
-| `sync_oldest_pending_job_age_seconds` | gauge | | age of the oldest job not yet done |
-| `sync_updates_received_total` | counter | | accepted updates |
-| `portal_requests_total` | counter | `outcome` | `success`, `rate_limited`, `unavailable`, `timeout`, `network_error`, `client_error` |
-| `portal_request_duration_seconds` | histogram | `outcome` | portal latency |
-| `sync_job_retries_total` | counter | `reason` | scheduled retries |
-| `sync_jobs_failed_total` | counter | `code` | jobs that gave up |
-| `sync_rate_limit_pauses_total` | counter | | `429`s received |
-| `sync_portal_paused` | gauge | | 1 while waiting out a `Retry-After` |
-
-**Alerts** an on-call engineer would set:
-
-| Alert | Rule | Why |
+| ID | Requirement | Verified by |
 |---|---|---|
-| Backlog stale | `sync_oldest_pending_job_age_seconds > 600` for 5 min | work is not draining; portal down, worker stuck or limit too low |
-| Jobs giving up | `increase(sync_jobs_failed_total[15m]) > 0` | a manager's change did not reach the portal; needs a human |
-| Portal error rate | non-success share of `portal_requests_total` (excluding `rate_limited`) `> 40%` over 10 min | baseline is ~17 %; a jump means the portal is degraded |
-| Being throttled | `increase(sync_rate_limit_pauses_total[1h]) > 5` | our limiter is miscalibrated or another client shares the key |
-| Portal slow | p95 of `portal_request_duration_seconds` `> 3 s` over 10 min | timeouts and retries will follow |
-| Worker stalled | `sync_jobs{state="pending"} > 0` and `rate(portal_requests_total[5m]) == 0` | queue has work but nothing is being sent |
+| DATA-01 | The schema of section 4 is created by SQL migration files applied at start-up; starting twice is harmless. | fake |
+| DATA-02 | An accepted update and all its jobs are written in one transaction that commits before the `202` is sent. | fake |
 
-## 8. Configuration (environment)
+### API — HTTP interface
+
+| ID | Requirement | Verified by |
+|---|---|---|
+| API-01 | `POST /updates` accepts `{accommodationId, from, to, available, pricePerNight}` and answers `202 {updateId, accommodationId, chunks, status: "pending"}`. | fake |
+| API-02 | Invalid input is rejected with `{error: {code, message}}`: `400 INVALID_BODY` for a non-object body, missing, unknown or wrongly typed fields, empty `accommodationId`, or `pricePerNight` not a finite number `>= 0`; `400 INVALID_DATE` for a malformed or non-existent date or `to` before `from`; `400 RANGE_TOO_LARGE` above 366 days. | unit |
+| API-03 | `GET /accommodations/:id/sync-status` answers `404 NOT_FOUND` when no update was ever received for that id. | fake |
+| API-04 | Otherwise it answers `200` with `accommodationId`, `status`, `jobs {pending, inProgress, done, failed, superseded}`, `lastSyncedAt`, `nextAttemptAt`, `lastError {code, message, at}` or `null`, and `updates` (20 newest first, each with `updateId, from, to, available, pricePerNight, receivedAt, status, chunks {total, done}`). | fake |
+| API-05 | Status derivation: an update is `superseded` if all jobs are superseded, `failed` if any job failed, `syncing` if any is in progress, `synced` if every job is done or superseded, else `pending`. The accommodation is `failed` if any update is failed, `pending` if any is pending or syncing, else `synced`. | unit |
+| API-06 | `GET /health` answers `200 {status: "ok"}` when the database answers a query and `503` otherwise. | manual |
+
+### SYNC — delivering updates to the portal
+
+| ID | Requirement | Verified by |
+|---|---|---|
+| SYNC-01 | A date range is split into contiguous chunks of at most 31 days inclusive that cover exactly the range. | unit |
+| SYNC-02 | The worker claims the pending job with the lowest `seq` whose `next_attempt_at <= now()`, using `FOR UPDATE SKIP LOCKED`, and marks it `in_progress` with `locked_at` and `attempts + 1` in the same statement. | fake |
+| SYNC-03 | A job is not claimed while an older job (`seq` lower) of the same accommodation is `pending` or `in_progress`. | fake |
+| SYNC-04 | When an update is accepted, pending (not in-progress) jobs of the same accommodation whose range lies within the new update's range are marked `superseded`. | fake |
+| SYNC-05 | The portal client sends `PUT /api/v1/accommodations/:id/availability` with `X-Api-Key` and a JSON body, aborts after `PORTAL_TIMEOUT_MS`, and classifies the result as `success`, `rate_limited`, `unavailable` (503 and other 5xx), `timeout`, `network_error` or `client_error` (400, 401, 404). | unit |
+| SYNC-06 | On `success` the job becomes `done` with `finished_at`. | fake |
+| SYNC-07 | On `unavailable`, `timeout` or `network_error` the job returns to `pending` with `next_attempt_at = now() + backoff(attempts)` and the error recorded in `last_error_*`. | fake |
+| SYNC-08 | `backoff(n) = min(60 s, 1 s · 2^n)` plus random jitter of up to 50 %. | unit |
+| SYNC-09 | A transient failure on attempt `MAX_ATTEMPTS` makes the job `failed` with `finished_at` and the last error kept. | fake |
+| SYNC-10 | On `client_error` the job becomes `failed` immediately, with the portal's error code and message. | fake |
+| SYNC-11 | On `rate_limited` the job returns to `pending` with `next_attempt_at = now() + Retry-After`, the attempt is not counted, and no portal call is started by any slot until that time. | fake |
+| SYNC-12 | The limiter allows at most `PORTAL_RATE_LIMIT_PER_MINUTE` call starts in any rolling 60 s window, counting every attempt whatever its outcome. | unit |
+| SYNC-13 | At most `WORKER_CONCURRENCY` portal calls are in flight at once. | unit |
+| SYNC-14 | At start-up and every 60 s, `in_progress` jobs whose `locked_at` is older than `LEASE_SECONDS` are returned to `pending`. | fake |
+| SYNC-15 | After the queue drains, the portal's day-by-day state equals the latest accepted update for every day touched, including when two updates overlap. | portal |
+| SYNC-16 | Under a backlog larger than one minute's budget, the portal's admin log shows no `429` from this service. | portal |
+
+### OBS — observability
+
+| ID | Requirement | Verified by |
+|---|---|---|
+| OBS-01 | Logs are JSON lines (pino) with `level`, `time`, `msg` and, where applicable, `reqId`, `updateId`, `jobId`, `accommodationId`, `attempt`, `outcome`, `portalStatus`, `durationMs`. Accepted updates and completed jobs log at `info`, retries and rate-limit pauses at `warn`, jobs marked failed at `error`. | manual |
+| OBS-02 | `GET /metrics` serves the Prometheus text format including Node's default process metrics. | fake |
+| OBS-03 | `sync_jobs{state}` (gauge) and `sync_oldest_pending_job_age_seconds` (gauge) are refreshed from the database every 5 s. | fake |
+| OBS-04 | `portal_requests_total{outcome}` (counter) and `portal_request_duration_seconds{outcome}` (histogram) are recorded for every portal attempt. | fake |
+| OBS-05 | `sync_updates_received_total`, `sync_job_retries_total{reason}`, `sync_jobs_failed_total{code}`, `sync_rate_limit_pauses_total` (counters) and `sync_portal_paused` (gauge, 1 while waiting out a `Retry-After`) are recorded. | fake |
+
+### OPS — running it
+
+| ID | Requirement | Verified by |
+|---|---|---|
+| OPS-01 | Configuration is read from the environment with the defaults of section 7; an invalid value stops start-up with a message naming the variable. | unit |
+| OPS-02 | On `SIGTERM`/`SIGINT` the service stops claiming jobs, waits up to `PORTAL_TIMEOUT_MS` for in-flight calls, closes the database pool and exits 0. | manual |
+| OPS-03 | `service/README.md` explains how to install, start, test and configure the service, including the portal URL. | manual |
+| OPS-04 | `scripts/trace.sh` prints, for every requirement ID in this file, the commits and test files that mention it, and lists IDs with neither. | manual |
+
+## 7. Configuration (environment)
 
 | Variable | Default |
 |---|---|
@@ -294,35 +200,18 @@ for retries and rate-limit pauses, `error` for jobs marked failed.
 | `LEASE_SECONDS` | `60` |
 | `LOG_LEVEL` | `info` |
 
-Schema migrations are plain SQL files applied at start-up.
+## 8. Alerts an on-call engineer would set
 
-## 9. Tests
+| Alert | Rule | Why |
+|---|---|---|
+| Backlog stale | `sync_oldest_pending_job_age_seconds > 600` for 5 min | work is not draining: portal down, worker stuck or limit too low |
+| Jobs giving up | `increase(sync_jobs_failed_total[15m]) > 0` | a manager's change did not reach the portal; needs a human |
+| Portal error rate | non-success share of `portal_requests_total` (excluding `rate_limited`) `> 40%` over 10 min | baseline is ~17 %; a jump means the portal is degraded |
+| Being throttled | `increase(sync_rate_limit_pauses_total[1h]) > 5` | our limiter is miscalibrated or another client shares the key |
+| Portal slow | p95 of `portal_request_duration_seconds > 3 s` over 10 min | timeouts and retries will follow |
+| Worker stalled | `sync_jobs{state="pending"} > 0` and `rate(portal_requests_total[5m]) == 0` | queue has work but nothing is being sent |
 
-A few tests that check what matters, not coverage.
-
-Unit (no I/O): range splitting into 31-day chunks (boundaries: 31, 32, 62 days,
-month ends); backoff schedule and cap; sliding-window limiter admits exactly N per
-window and honours a pause; derived status from job states.
-
-Integration (real PostgreSQL and real Portal Sol, each test starts with
-`POST /__admin/reset`):
-
-1. **Accepted means delivered**: post an update, wait, the portal's day-by-day
-   state equals the request.
-2. **Survives restart**: post updates, stop the worker mid-way, start a new one;
-   every job ends `done` and the portal state is right.
-3. **Respects the limit**: post more work than one minute allows; the admin log
-   contains no `429`, and all jobs end `done`.
-4. **Transient failures are retried**: with the portal's natural `503` rate, the
-   admin log shows `503`s and every job still ends `done` (the request log proves
-   the retries).
-5. **Last writer wins**: two overlapping updates posted back to back; the portal
-   shows the second one's values on the overlap.
-
-Integration tests are rate-bound by the portal (30 calls/min), so they use few,
-small updates and run in about a minute.
-
-## 10. Out of scope, and next
+## 9. Out of scope, and next
 
 Left out on purpose, in the order they would be done next:
 
@@ -336,22 +225,3 @@ Left out on purpose, in the order they would be done next:
 4. **Day-level merge** of overlapping updates into minimal `PUT`s; FIFO plus
    superseding covers the common case.
 5. Authentication, deployment, dashboards.
-
-## 11. Acceptance criteria
-
-- [ ] `POST /updates` with a valid body returns `202` and the row exists in
-      PostgreSQL before the response is sent.
-- [ ] Invalid bodies return `400` with the documented error shape.
-- [ ] Every accepted update reaches the portal: after the queue drains, the
-      portal's day-by-day state matches the latest update for every day touched.
-- [ ] Killing and restarting the service with jobs pending or in progress loses
-      nothing and sends no wrong state.
-- [ ] Under sustained load the portal's admin log shows no `429` from this
-      service; if one occurs, no request is sent before `Retry-After` elapses.
-- [ ] `503` and timeouts are retried with backoff; a job that exhausts attempts
-      is `failed`, visible in sync status and in `sync_jobs_failed_total`.
-- [ ] `GET /accommodations/:id/sync-status` reflects the states above within
-      one poll interval.
-- [ ] `GET /metrics` exposes every metric in section 7 with live values.
-- [ ] Logs are JSON lines with the fields in section 7.
-- [ ] `README.md` in `service/` explains install, run, test and configuration.
