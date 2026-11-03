@@ -10,7 +10,7 @@ services:
     image: ghcr.io/avantio/portal-sol:latest
     container_name: portal-sol
     ports:
-      - "4000:4000"
+      - "127.0.0.1:4000:4000"
     restart: unless-stopped
 
   postgres:
@@ -22,7 +22,7 @@ services:
       POSTGRES_PASSWORD: sync
       POSTGRES_DB: sync
     ports:
-      - "5432:5432"
+      - "127.0.0.1:${POSTGRES_PORT:-5432}:5432"
     volumes:
       - postgres-data:/var/lib/postgresql
     healthcheck:
@@ -37,7 +37,7 @@ services:
     container_name: sync-mongo
     profiles: ["mongo"]
     ports:
-      - "27017:27017"
+      - "127.0.0.1:${MONGO_PORT:-27017}:27017"
     volumes:
       - mongo-data:/data/db
     healthcheck:
