@@ -3,6 +3,8 @@ import type { Logger } from "../observability/logger.ts";
 import { ApiError } from "../domain/update.ts";
 import type { SyncRepository } from "../sync/repository.ts";
 import { registerUpdatesRoute } from "./routes/updates.ts";
+import { registerStatusRoute } from "./routes/status.ts";
+import { registerHealthRoute } from "./routes/health.ts";
 
 export interface ServerDeps {
   logger: Logger;
@@ -30,5 +32,7 @@ export function buildServer({ logger, repository }: ServerDeps): FastifyInstance
   );
 
   registerUpdatesRoute(app, repository);
+  registerStatusRoute(app, repository);
+  registerHealthRoute(app, repository.pool);
   return app;
 }
