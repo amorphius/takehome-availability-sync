@@ -27,6 +27,7 @@ export interface Job {
 export interface Accepted {
   updateId: string;
   chunks: number;
+  superseded: number;
 }
 
 interface JobRow {
@@ -76,13 +77,24 @@ export class SyncRepository {
     this.pool = pool;
   }
 
-  /** DATA-02: the update and one pending job per 31-day chunk, in one transaction. */
+  /**
+   * DATA-02: the update and one pending job per 31-day chunk, in one transaction.
+   * SYNC-04: pending jobs of the same accommodation that lie inside the new range are superseded first;
+   * the new chunks will overwrite every day they would have set. In-progress jobs are left alone.
+   */
   async acceptUpdate(request: UpdateRequest): Promise<Accepted> {
     const updateId = randomUUID();
     const chunks = splitRange(request.from, request.to);
     const client = await this.pool.connect();
+    let superseded = 0;
     try {
       await client.query("begin");
+      const covered = await client.query(
+        `update sync_jobs set state = 'superseded', finished_at = now()
+         where accommodation_id = $1 and state = 'pending' and from_date >= $2 and to_date <= $3`,
+        [request.accommodationId, request.from, request.to],
+      );
+      superseded = covered.rowCount ?? 0;
       await client.query(
         `insert into updates (id, accommodation_id, from_date, to_date, available, price_per_night)
          values ($1, $2, $3, $4, $5, $6)`,
@@ -102,7 +114,7 @@ export class SyncRepository {
     } finally {
       client.release();
     }
-    return { updateId, chunks: chunks.length };
+    return { updateId, chunks: chunks.length, superseded };
   }
 
   /**
