@@ -2,6 +2,8 @@ import { createServer, type IncomingMessage, type ServerResponse } from "node:ht
 import type { AddressInfo } from "node:net";
 
 export interface FakeRequest {
+  /** Date.now() when the request arrived. */
+  at: number;
   method: string;
   path: string;
   apiKey: string | undefined;
@@ -83,7 +85,7 @@ export class FakePortal {
     } catch {
       body = raw;
     }
-    const request: FakeRequest = { method: req.method ?? "", path: req.url ?? "", apiKey: req.headers["x-api-key"] as string | undefined, body };
+    const request: FakeRequest = { at: Date.now(), method: req.method ?? "", path: req.url ?? "", apiKey: req.headers["x-api-key"] as string | undefined, body };
     const index = this.requests.length;
     this.requests.push(request);
     const response = this.#script(request, index);

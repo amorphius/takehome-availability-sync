@@ -20,7 +20,7 @@ test("SYNC-05: sends PUT with the API key and JSON body, 200 is success", async 
   const { outcome, durationMs } = await client.putAvailability("acc-1003", body);
   assert.deepEqual(outcome, { kind: "success", status: 200, daysUpdated: 7 });
   assert.ok(durationMs >= 0);
-  assert.deepEqual(portal.requests, [
+  assert.deepEqual(portal.requests.map(({ at: _at, ...r }) => r), [
     { method: "PUT", path: "/api/v1/accommodations/acc-1003/availability", apiKey: "test-key", body },
   ]);
 });

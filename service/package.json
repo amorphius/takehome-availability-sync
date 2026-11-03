@@ -6,9 +6,9 @@
     "test": "npm run test:unit && npm run test:fake",
     "start": "node src/main.ts",
     "typecheck": "tsc --noEmit",
-    "test:unit": "node --test 'test/unit/*.test.ts'",
-    "test:fake": "node --test --test-concurrency=1 'test/fake/*.test.ts'",
-    "test:portal": "node --test --test-concurrency=1 'test/portal/*.test.ts'"
+    "test:unit": "node --test --test-timeout=15000 'test/unit/*.test.ts'",
+    "test:fake": "node --test --test-timeout=15000 --test-concurrency=1 'test/fake/*.test.ts'",
+    "test:portal": "node --test --test-timeout=120000 --test-concurrency=1 'test/portal/*.test.ts'"
   },
   "license": "UNLICENSED",
   "type": "module",

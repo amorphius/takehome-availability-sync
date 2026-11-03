@@ -70,7 +70,21 @@ export function toJob(row: JobRow): Job {
   };
 }
 
-export class SyncRepository {
+export interface JobError {
+  code: string;
+  message: string;
+}
+
+/** What the worker needs from storage; SyncRepository is the PostgreSQL implementation. */
+export interface JobStore {
+  claimNext(): Promise<Job | null>;
+  markDone(jobId: string): Promise<void>;
+  reschedule(jobId: string, nextAttemptAt: Date, error: JobError, countAttempt: boolean): Promise<void>;
+  markFailed(jobId: string, error: JobError): Promise<void>;
+  reclaimStale(leaseSeconds: number): Promise<number>;
+}
+
+export class SyncRepository implements JobStore {
   readonly pool: Pool;
 
   constructor(pool: Pool) {
@@ -147,6 +161,39 @@ export class SyncRepository {
       "update sync_jobs set state = 'done', finished_at = now(), locked_at = null where id = $1",
       [jobId],
     );
+  }
+
+  /** SYNC-07 / SYNC-11: back to pending for a later attempt. A 429 does not count as an attempt. */
+  async reschedule(jobId: string, nextAttemptAt: Date, error: JobError, countAttempt: boolean): Promise<void> {
+    await this.pool.query(
+      `update sync_jobs
+       set state = 'pending', locked_at = null, next_attempt_at = $2,
+           attempts = case when $5 then attempts else attempts - 1 end,
+           last_error_code = $3, last_error_message = $4, last_error_at = now()
+       where id = $1`,
+      [jobId, nextAttemptAt, error.code, error.message, countAttempt],
+    );
+  }
+
+  /** SYNC-09 / SYNC-10: gave up; stays visible with its last error. */
+  async markFailed(jobId: string, error: JobError): Promise<void> {
+    await this.pool.query(
+      `update sync_jobs
+       set state = 'failed', locked_at = null, finished_at = now(),
+           last_error_code = $2, last_error_message = $3, last_error_at = now()
+       where id = $1`,
+      [jobId, error.code, error.message],
+    );
+  }
+
+  /** SYNC-14: jobs whose holder vanished (crash, kill) go back to pending; replay is safe, PUT is idempotent. */
+  async reclaimStale(leaseSeconds: number): Promise<number> {
+    const result = await this.pool.query(
+      `update sync_jobs set state = 'pending', locked_at = null
+       where state = 'in_progress' and locked_at < now() - make_interval(secs => $1)`,
+      [leaseSeconds],
+    );
+    return result.rowCount ?? 0;
   }
 
   async jobsOfUpdate(updateId: string): Promise<Job[]> {
