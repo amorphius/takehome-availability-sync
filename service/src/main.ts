@@ -1,4 +1,4 @@
-import { loadConfig, ConfigError } from "./config.ts";
+import { loadConfig, ConfigError, type Config } from "./config.ts";
 import { createLogger } from "./observability/logger.ts";
 import { createPool } from "./db/pool.ts";
 import { migrate } from "./db/migrate.ts";
@@ -10,7 +10,7 @@ import { buildServer } from "./http/server.ts";
 import { createMetrics } from "./observability/metrics.ts";
 import { createQueueGauges } from "./observability/queueGauges.ts";
 
-let config;
+let config: Config;
 try {
   config = loadConfig();
 } catch (error) {
@@ -48,3 +48,30 @@ await app.listen({ port: config.port, host: "0.0.0.0" });
 await worker.start();
 queueGauges.start(5000);
 log.info({ port: config.port, portalUrl: config.portalUrl }, "availability sync service listening");
+
+// OPS-02: stop taking requests and claiming jobs, let in-flight portal calls finish (bounded by the portal
+// timeout), release the database, exit 0. A hard deadline guards against anything that refuses to end.
+let stopping = false;
+async function shutdown(signal: NodeJS.Signals): Promise<void> {
+  if (stopping) return;
+  stopping = true;
+  log.info({ signal }, "shutting down");
+  const deadline = setTimeout(() => {
+    log.error("shutdown deadline passed; exiting anyway");
+    process.exit(1);
+  }, config.portalTimeoutMs + 5000);
+  deadline.unref();
+  try {
+    queueGauges.stop();
+    await app.close();
+    await worker.stop();
+    await pool.end();
+    log.info("shutdown complete");
+    process.exit(0);
+  } catch (error) {
+    log.error({ err: error }, "shutdown failed");
+    process.exit(1);
+  }
+}
+process.once("SIGTERM", () => void shutdown("SIGTERM"));
+process.once("SIGINT", () => void shutdown("SIGINT"));
