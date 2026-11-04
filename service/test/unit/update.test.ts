@@ -53,3 +53,11 @@ test("SEC-04: accommodationId is bounded in length and character set", () => {
   rejects({ ...valid, accommodationId: "acc\n1003" }, "INVALID_BODY", /accommodationId/);
   rejects({ ...valid, accommodationId: " acc-1003" }, "INVALID_BODY", /accommodationId/);
 });
+
+test("SEC-05: pricePerNight fits the numeric(10,2) column", () => {
+  assert.equal(parseUpdateRequest({ ...valid, pricePerNight: 99_999_999.99 }).pricePerNight, 99_999_999.99);
+  assert.equal(parseUpdateRequest({ ...valid, pricePerNight: 0.5 }).pricePerNight, 0.5);
+  rejects({ ...valid, pricePerNight: 100_000_000 }, "INVALID_BODY", /at most 99999999.99/);
+  rejects({ ...valid, pricePerNight: 1e12 }, "INVALID_BODY", /pricePerNight/);
+  rejects({ ...valid, pricePerNight: 10.005 }, "INVALID_BODY", /two decimals/);
+});

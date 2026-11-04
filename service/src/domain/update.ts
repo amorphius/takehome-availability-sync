@@ -4,6 +4,8 @@ export const MAX_UPDATE_DAYS = 366;
 /** SEC-04: ids are stored, indexed, logged and put in a URL; keep them short and plain. */
 export const MAX_ACCOMMODATION_ID_LENGTH = 64;
 const ACCOMMODATION_ID_RE = /^[A-Za-z0-9._-]+$/;
+/** SEC-05: the column is numeric(10,2); anything beyond it would fail inside the transaction as a 500. */
+export const MAX_PRICE_PER_NIGHT = 99_999_999.99;
 
 export interface UpdateRequest {
   accommodationId: string;
@@ -50,6 +52,9 @@ export function parseUpdateRequest(body: unknown): UpdateRequest {
   if (typeof available !== "boolean") throw new ApiError(400, "INVALID_BODY", '"available" must be a boolean');
   if (typeof pricePerNight !== "number" || !Number.isFinite(pricePerNight) || pricePerNight < 0) {
     throw new ApiError(400, "INVALID_BODY", '"pricePerNight" must be a number >= 0');
+  }
+  if (pricePerNight > MAX_PRICE_PER_NIGHT || Math.round(pricePerNight * 100) !== pricePerNight * 100) {
+    throw new ApiError(400, "INVALID_BODY", `"pricePerNight" must be at most ${MAX_PRICE_PER_NIGHT} with at most two decimals`);
   }
   if (typeof from !== "string" || !parseDate(from)) {
     throw new ApiError(400, "INVALID_DATE", '"from" must be a valid date in YYYY-MM-DD format');
