@@ -5,13 +5,16 @@ import { parseUpdateRequest, ApiError } from "../../src/domain/update.ts";
 const valid = { accommodationId: "acc-1003", from: "2026-10-01", to: "2026-10-07", available: true, pricePerNight: 120 };
 
 function rejects(body: unknown, code: string, pattern: RegExp) {
-  assert.throws(() => parseUpdateRequest(body), (e: unknown) => {
-    assert.ok(e instanceof ApiError);
-    assert.equal(e.status, 400);
-    assert.equal(e.code, code);
-    assert.match(e.message, pattern);
-    return true;
-  });
+  assert.throws(
+    () => parseUpdateRequest(body),
+    (e: unknown) => {
+      assert.ok(e instanceof ApiError);
+      assert.equal(e.status, 400);
+      assert.equal(e.code, code);
+      assert.match(e.message, pattern);
+      return true;
+    },
+  );
 }
 
 test("API-02: a valid body is returned as-is", () => {

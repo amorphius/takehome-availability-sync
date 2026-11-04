@@ -18,7 +18,14 @@ export function testWorker(pool: Pool, options: TestWorkerOptions) {
   const portal = new PortalClient({ baseUrl: options.portalUrl, apiKey: "test-key", timeoutMs: options.timeoutMs ?? 200 });
   const limiter = new SlidingWindowLimiter(options.limit ?? 1000);
   const config: WorkerConfig = { concurrency: 2, pollMs: 20, maxAttempts: 8, leaseSeconds: 60, backoffBaseMs: 10, ...options.config };
-  const worker = new Worker({ store, portal, limiter, logger: silentLogger(), config, ...(options.observer ? { observer: options.observer } : {}) });
+  const worker = new Worker({
+    store,
+    portal,
+    limiter,
+    logger: silentLogger(),
+    config,
+    ...(options.observer ? { observer: options.observer } : {}),
+  });
   return { worker, store, portal, limiter };
 }
 
@@ -47,5 +54,12 @@ export async function jobRows(pool: Pool) {
   const { rows } = await pool.query(
     "select state, attempts, last_error_code, finished_at, next_attempt_at, locked_at from sync_jobs order by seq",
   );
-  return rows as { state: string; attempts: number; last_error_code: string | null; finished_at: Date | null; next_attempt_at: Date; locked_at: Date | null }[];
+  return rows as {
+    state: string;
+    attempts: number;
+    last_error_code: string | null;
+    finished_at: Date | null;
+    next_attempt_at: Date;
+    locked_at: Date | null;
+  }[];
 }

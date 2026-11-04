@@ -47,7 +47,11 @@ export function parseUpdateRequest(body: unknown): UpdateRequest {
     throw new ApiError(400, "INVALID_BODY", '"accommodationId" must be a non-empty string');
   }
   if (accommodationId.length > MAX_ACCOMMODATION_ID_LENGTH || !ACCOMMODATION_ID_RE.test(accommodationId)) {
-    throw new ApiError(400, "INVALID_BODY", `"accommodationId" must be at most ${MAX_ACCOMMODATION_ID_LENGTH} characters of letters, digits, ".", "_" or "-"`);
+    throw new ApiError(
+      400,
+      "INVALID_BODY",
+      `"accommodationId" must be at most ${MAX_ACCOMMODATION_ID_LENGTH} characters of letters, digits, ".", "_" or "-"`,
+    );
   }
   if (typeof available !== "boolean") throw new ApiError(400, "INVALID_BODY", '"available" must be a boolean');
   if (typeof pricePerNight !== "number" || !Number.isFinite(pricePerNight) || pricePerNight < 0) {

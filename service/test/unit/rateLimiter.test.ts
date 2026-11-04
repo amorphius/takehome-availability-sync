@@ -13,7 +13,14 @@ function fakeClock(start = 1_000_000) {
       now += ms;
     },
   };
-  return { clock, sleeps, advance: (ms: number) => (now += ms), get now() { return now; } };
+  return {
+    clock,
+    sleeps,
+    advance: (ms: number) => (now += ms),
+    get now() {
+      return now;
+    },
+  };
 }
 
 test("SYNC-12: admits `limit` starts at once, then waits for the oldest to leave the window", async () => {
@@ -76,13 +83,19 @@ test("SEC-02: the real clock never asks Node for a timer it cannot hold, so a lo
   process.on("warning", onWarning);
   const controller = new AbortController();
   let settled = false;
-  const sleep = realClock.sleep(999_999_999_000, controller.signal).then(() => (settled = true), () => (settled = true));
+  const sleep = realClock.sleep(999_999_999_000, controller.signal).then(
+    () => (settled = true),
+    () => (settled = true),
+  );
   await new Promise((r) => setTimeout(r, 50));
   assert.equal(settled, false, "still sleeping after 50 ms");
   controller.abort(new Error("done"));
   await sleep;
   await new Promise((r) => setImmediate(r));
   process.off("warning", onWarning);
-  assert.deepEqual(warnings.filter((n) => n === "TimeoutOverflowWarning"), []);
+  assert.deepEqual(
+    warnings.filter((n) => n === "TimeoutOverflowWarning"),
+    [],
+  );
   assert.equal(MAX_TIMER_MS, 2 ** 31 - 1);
 });

@@ -28,7 +28,12 @@ test("API-01 DATA-02: POST /updates answers 202 and the update with its jobs is 
   const update = await pool.query("select * from updates where id = $1", [json.updateId]);
   assert.equal(update.rowCount, 1);
   assert.deepEqual(
-    { from: update.rows[0].from_date, to: update.rows[0].to_date, available: update.rows[0].available, price: update.rows[0].price_per_night },
+    {
+      from: update.rows[0].from_date,
+      to: update.rows[0].to_date,
+      available: update.rows[0].available,
+      price: update.rows[0].price_per_night,
+    },
     { from: "2026-10-01", to: "2026-11-15", available: false, price: 99.5 },
   );
   const jobs = await repository.jobsOfUpdate(json.updateId);

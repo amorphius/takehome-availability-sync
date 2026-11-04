@@ -28,9 +28,22 @@ const noopStore: JobStore = {
 };
 
 const job: Job = {
-  id: "job-1", seq: "1", updateId: "update-1", accommodationId: "acc-1003", from: "2026-10-01", to: "2026-10-07",
-  available: true, pricePerNight: 120, state: "in_progress", attempts: 2, nextAttemptAt: new Date(), lockedAt: new Date(),
-  lastErrorCode: null, lastErrorMessage: null, lastErrorAt: null, finishedAt: null,
+  id: "job-1",
+  seq: "1",
+  updateId: "update-1",
+  accommodationId: "acc-1003",
+  from: "2026-10-01",
+  to: "2026-10-07",
+  available: true,
+  pricePerNight: 120,
+  state: "in_progress",
+  attempts: 2,
+  nextAttemptAt: new Date(),
+  lockedAt: new Date(),
+  lastErrorCode: null,
+  lastErrorMessage: null,
+  lastErrorAt: null,
+  finishedAt: null,
 };
 
 test("OBS-01: worker log lines are JSON with the job, outcome and timing fields at the documented levels", async () => {
@@ -53,7 +66,14 @@ test("OBS-01: worker log lines are JSON with the job, outcome and timing fields 
   assert.equal(done?.msg, "job done");
   assert.equal(done?.level, 30, "info");
   assert.deepEqual(
-    { jobId: done?.jobId, updateId: done?.updateId, accommodationId: done?.accommodationId, attempt: done?.attempt, outcome: done?.outcome, portalStatus: done?.portalStatus },
+    {
+      jobId: done?.jobId,
+      updateId: done?.updateId,
+      accommodationId: done?.accommodationId,
+      attempt: done?.attempt,
+      outcome: done?.outcome,
+      portalStatus: done?.portalStatus,
+    },
     { jobId: "job-1", updateId: "update-1", accommodationId: "acc-1003", attempt: 2, outcome: "success", portalStatus: 200 },
   );
   assert.equal(typeof done?.durationMs, "number");

@@ -85,7 +85,13 @@ export class FakePortal {
     } catch {
       body = raw;
     }
-    const request: FakeRequest = { at: Date.now(), method: req.method ?? "", path: req.url ?? "", apiKey: req.headers["x-api-key"] as string | undefined, body };
+    const request: FakeRequest = {
+      at: Date.now(),
+      method: req.method ?? "",
+      path: req.url ?? "",
+      apiKey: req.headers["x-api-key"] as string | undefined,
+      body,
+    };
     const index = this.requests.length;
     this.requests.push(request);
     const response = this.#script(request, index);

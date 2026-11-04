@@ -62,7 +62,10 @@ const app = buildServer({
 await app.listen({ port: config.port, host: config.host });
 await worker.start();
 queueGauges.start(5000);
-log.info({ host: config.host, port: config.port, portalUrl: config.portalUrl, apiKeyRequired: config.apiKey !== undefined }, "availability sync service listening");
+log.info(
+  { host: config.host, port: config.port, portalUrl: config.portalUrl, apiKeyRequired: config.apiKey !== undefined },
+  "availability sync service listening",
+);
 if (config.apiKey === undefined) log.warn("API_KEY is not set: every endpoint is open (SEC-01)");
 
 // OPS-02: stop taking requests and claiming jobs, let in-flight portal calls finish (bounded by the portal

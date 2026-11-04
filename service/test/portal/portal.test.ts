@@ -79,12 +79,17 @@ test("SYNC-15: the portal ends in the state of the latest update for every day, 
 
   const days = await portalDays("acc-1005", day(1), day(15));
   assert.equal(days.length, 15);
-  for (const d of days.slice(0, 4)) assert.deepEqual({ available: d.available, price: d.pricePerNight }, { available: false, price: 50 }, d.date);
-  for (const d of days.slice(4)) assert.deepEqual({ available: d.available, price: d.pricePerNight }, { available: true, price: 75 }, d.date);
+  for (const d of days.slice(0, 4))
+    assert.deepEqual({ available: d.available, price: d.pricePerNight }, { available: false, price: 50 }, d.date);
+  for (const d of days.slice(4))
+    assert.deepEqual({ available: d.available, price: d.pricePerNight }, { available: true, price: 75 }, d.date);
 
   const long = await portalDays("acc-1006", day(1), day(40));
   assert.equal(long.length, 40);
-  assert.ok(long.every((d) => d.available === false && d.pricePerNight === 199.5), "both chunks applied");
+  assert.ok(
+    long.every((d) => d.available === false && d.pricePerNight === 199.5),
+    "both chunks applied",
+  );
 
   const { counts } = await adminStatuses();
   assert.equal(counts.get("429") ?? 0, 0);
@@ -96,7 +101,13 @@ test("SYNC-16: a backlog larger than one minute's budget drains without a single
   let price = 10;
   for (let round = 0; round < 4; round++) {
     for (const id of ids) {
-      await store.acceptUpdate({ accommodationId: id, from: day(20 + round * 3), to: day(22 + round * 3), available: round % 2 === 0, pricePerNight: price++ });
+      await store.acceptUpdate({
+        accommodationId: id,
+        from: day(20 + round * 3),
+        to: day(22 + round * 3),
+        available: round % 2 === 0,
+        pricePerNight: price++,
+      });
     }
   }
   const started = Date.now();
@@ -113,5 +124,8 @@ test("SYNC-16: a backlog larger than one minute's budget drains without a single
 
   // The last update of each accommodation is what the portal shows.
   const last = await portalDays("acc-1001", day(29), day(31));
-  assert.ok(last.every((d) => d.available === false), "round 3 (available=false) is the final state");
+  assert.ok(
+    last.every((d) => d.available === false),
+    "round 3 (available=false) is the final state",
+  );
 });

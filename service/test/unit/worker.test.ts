@@ -27,9 +27,22 @@ class MemoryStore implements JobStore {
 
 function job(n: number): Job {
   return {
-    id: `job-${n}`, seq: String(n), updateId: `u-${n}`, accommodationId: `acc-${n}`, from: "2026-10-01", to: "2026-10-02",
-    available: true, pricePerNight: 1, state: "pending", attempts: 0, nextAttemptAt: new Date(), lockedAt: null,
-    lastErrorCode: null, lastErrorMessage: null, lastErrorAt: null, finishedAt: null,
+    id: `job-${n}`,
+    seq: String(n),
+    updateId: `u-${n}`,
+    accommodationId: `acc-${n}`,
+    from: "2026-10-01",
+    to: "2026-10-02",
+    available: true,
+    pricePerNight: 1,
+    state: "pending",
+    attempts: 0,
+    nextAttemptAt: new Date(),
+    lockedAt: null,
+    lastErrorCode: null,
+    lastErrorMessage: null,
+    lastErrorAt: null,
+    finishedAt: null,
   };
 }
 

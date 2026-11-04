@@ -161,7 +161,11 @@ export class SyncRepository implements JobStore {
         );
         const { mine, total } = open.rows[0]!;
         if (mine + chunks.length > limits.maxPendingJobsPerAccommodation) {
-          throw new ApiError(429, "QUEUE_FULL", `Accommodation ${request.accommodationId} already has ${mine} jobs waiting; at most ${limits.maxPendingJobsPerAccommodation} are allowed`);
+          throw new ApiError(
+            429,
+            "QUEUE_FULL",
+            `Accommodation ${request.accommodationId} already has ${mine} jobs waiting; at most ${limits.maxPendingJobsPerAccommodation} are allowed`,
+          );
         }
         if (total + chunks.length > limits.maxPendingJobs) {
           throw new ApiError(503, "QUEUE_FULL", `${total} jobs are waiting; the service accepts no more until the queue drains`);
@@ -231,10 +235,7 @@ export class SyncRepository implements JobStore {
 
   /** SYNC-06: a delivered job. */
   async markDone(jobId: string): Promise<void> {
-    await this.pool.query(
-      "update sync_jobs set state = 'done', finished_at = now(), locked_at = null where id = $1",
-      [jobId],
-    );
+    await this.pool.query("update sync_jobs set state = 'done', finished_at = now(), locked_at = null where id = $1", [jobId]);
   }
 
   /** SYNC-07 / SYNC-11: back to pending for a later attempt. A 429 does not count as an attempt. */
@@ -273,7 +274,12 @@ export class SyncRepository implements JobStore {
   /** API-03 / API-04: null when the accommodation was never seen; otherwise the status view. */
   async syncStatus(accommodationId: string): Promise<SyncStatusView | null> {
     const updates = await this.pool.query<{
-      id: string; from_date: string; to_date: string; available: boolean; price_per_night: number; received_at: Date;
+      id: string;
+      from_date: string;
+      to_date: string;
+      available: boolean;
+      price_per_night: number;
+      received_at: Date;
     }>(
       `select id, from_date, to_date, available, price_per_night, received_at
        from updates where accommodation_id = $1 order by received_at desc, id limit $2`,
@@ -282,10 +288,9 @@ export class SyncRepository implements JobStore {
     if (updates.rowCount === 0) return null;
 
     const [jobsOfShown, aggregate, lastError] = await Promise.all([
-      this.pool.query<{ update_id: string; state: JobState }>(
-        "select update_id, state from sync_jobs where update_id = any($1::uuid[])",
-        [updates.rows.map((u) => u.id)],
-      ),
+      this.pool.query<{ update_id: string; state: JobState }>("select update_id, state from sync_jobs where update_id = any($1::uuid[])", [
+        updates.rows.map((u) => u.id),
+      ]),
       this.pool.query<{ state: JobState; n: string; last_synced_at: Date | null; next_attempt_at: Date | null }>(
         `select state, count(*) as n,
                 max(finished_at) filter (where state = 'done') as last_synced_at,

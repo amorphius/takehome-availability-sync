@@ -8,7 +8,9 @@
     "typecheck": "tsc --noEmit",
     "test:unit": "node --test --test-timeout=15000 'test/unit/*.test.ts'",
     "test:fake": "node --test --test-timeout=15000 --test-concurrency=1 'test/fake/*.test.ts'",
-    "test:portal": "node --test --test-timeout=300000 --test-concurrency=1 'test/portal/*.test.ts'"
+    "test:portal": "node --test --test-timeout=300000 --test-concurrency=1 'test/portal/*.test.ts'",
+    "lint": "biome check .",
+    "lint:fix": "biome check --write ."
   },
   "license": "UNLICENSED",
   "type": "module",
@@ -23,6 +25,7 @@
     "prom-client": "^15.1.3"
   },
   "devDependencies": {
+    "@biomejs/biome": "2.6.4",
     "@types/node": "^24.19.2",
     "@types/pg": "^8.23.1",
     "typescript": "^5.9.3"

@@ -93,8 +93,16 @@ export class Worker {
         const until = Date.now() + outcome.retryAfterSeconds * 1000;
         limiter.pauseUntil(until);
         observer?.paused?.(until);
-        await store.reschedule(job.id, new Date(until), { code: "RATE_LIMITED", message: `Retry after ${outcome.retryAfterSeconds} s` }, false);
-        log.warn({ outcome: outcome.kind, portalStatus, durationMs, retryAfterSeconds: outcome.retryAfterSeconds }, "rate limited; all slots paused");
+        await store.reschedule(
+          job.id,
+          new Date(until),
+          { code: "RATE_LIMITED", message: `Retry after ${outcome.retryAfterSeconds} s` },
+          false,
+        );
+        log.warn(
+          { outcome: outcome.kind, portalStatus, durationMs, retryAfterSeconds: outcome.retryAfterSeconds },
+          "rate limited; all slots paused",
+        );
         break;
       }
       case "client_error":
@@ -114,7 +122,10 @@ export class Worker {
         if (job.attempts >= config.maxAttempts) {
           await store.markFailed(job.id, error);
           observer?.failed?.(error.code);
-          log.error({ outcome: outcome.kind, portalStatus, durationMs, errorCode: error.code, attempts: job.attempts }, "job failed: attempts exhausted");
+          log.error(
+            { outcome: outcome.kind, portalStatus, durationMs, errorCode: error.code, attempts: job.attempts },
+            "job failed: attempts exhausted",
+          );
         } else {
           const delay = backoffMs(job.attempts, { baseMs: config.backoffBaseMs ?? 1000 });
           await store.reschedule(job.id, new Date(Date.now() + delay), error, true);

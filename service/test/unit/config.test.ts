@@ -25,7 +25,14 @@ test("OPS-01: defaults apply when the environment is empty", () => {
 });
 
 test("OPS-01: values are read from the environment", () => {
-  const config = loadConfig({ PORT: "8080", HOST: "0.0.0.0", API_KEY: "k", PORTAL_URL: "http://portal:4000/", MAX_ATTEMPTS: "3", LOG_LEVEL: "debug" });
+  const config = loadConfig({
+    PORT: "8080",
+    HOST: "0.0.0.0",
+    API_KEY: "k",
+    PORTAL_URL: "http://portal:4000/",
+    MAX_ATTEMPTS: "3",
+    LOG_LEVEL: "debug",
+  });
   assert.equal(config.port, 8080);
   assert.equal(config.host, "0.0.0.0");
   assert.equal(config.apiKey, "k");
@@ -35,7 +42,10 @@ test("OPS-01: values are read from the environment", () => {
 });
 
 test("OPS-01: an invalid value fails with a message naming the variable", () => {
-  assert.throws(() => loadConfig({ PORTAL_TIMEOUT_MS: "soon" }), (e: unknown) => e instanceof ConfigError && /PORTAL_TIMEOUT_MS/.test((e as Error).message));
+  assert.throws(
+    () => loadConfig({ PORTAL_TIMEOUT_MS: "soon" }),
+    (e: unknown) => e instanceof ConfigError && /PORTAL_TIMEOUT_MS/.test((e as Error).message),
+  );
   assert.throws(() => loadConfig({ WORKER_CONCURRENCY: "0" }), /WORKER_CONCURRENCY/);
   assert.throws(() => loadConfig({ PORT: "70000" }), /PORT/);
   assert.throws(() => loadConfig({ LOG_LEVEL: "loud" }), /LOG_LEVEL/);
@@ -46,7 +56,10 @@ test("SEC-08: NODE_ENV=production removes the secret defaults and names what is 
   assert.equal(loadConfig(full).portalApiKey, "real");
   for (const name of ["DATABASE_URL", "PORTAL_API_KEY", "API_KEY"] as const) {
     const { [name]: _dropped, ...env } = full;
-    assert.throws(() => loadConfig(env), (e: unknown) => e instanceof ConfigError && (e as Error).message === `${name} is required when NODE_ENV=production`);
+    assert.throws(
+      () => loadConfig(env),
+      (e: unknown) => e instanceof ConfigError && (e as Error).message === `${name} is required when NODE_ENV=production`,
+    );
   }
   assert.equal(loadConfig({ NODE_ENV: "development" }).portalApiKey, "sol-demo-key", "outside production the defaults stay");
 });

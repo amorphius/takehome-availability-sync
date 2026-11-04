@@ -31,9 +31,10 @@ test("SYNC-06: a 200 marks the job done with finished_at and the chunk was sent 
   assert.equal(job?.attempts, 1);
   assert.ok(job?.finished_at instanceof Date);
   assert.equal(job?.locked_at, null);
-  assert.deepEqual(portal.requests.map((r) => [r.path, r.body]), [
-    ["/api/v1/accommodations/acc-1003/availability", { from: "2026-10-01", to: "2026-10-07", available: false, pricePerNight: 120 }],
-  ]);
+  assert.deepEqual(
+    portal.requests.map((r) => [r.path, r.body]),
+    [["/api/v1/accommodations/acc-1003/availability", { from: "2026-10-01", to: "2026-10-07", available: false, pricePerNight: 120 }]],
+  );
 });
 
 test("SYNC-07: a 503 and a hang each reschedule with backoff; the job then succeeds", async () => {
@@ -109,7 +110,10 @@ test("SYNC-11: a 429 pauses every slot until Retry-After and does not count as a
     assert.deepEqual(during.map((j) => j.state).sort(), ["done", "pending", "pending"]);
     await waitUntilSettled(pool);
   });
-  assert.deepEqual((await jobRows(pool)).map((j) => j.state), ["done", "done", "done"]);
+  assert.deepEqual(
+    (await jobRows(pool)).map((j) => j.state),
+    ["done", "done", "done"],
+  );
   assert.equal(pauses.length, 1);
   assert.equal(portal.requests.length, 4);
   const pauseStart = portal.requests[0]!.at;
@@ -122,10 +126,19 @@ test("SYNC-14: in-progress jobs past their lease go back to pending; fresh ones 
   const { store } = testWorker(pool, { portalUrl: portal.url });
   const stale = await store.acceptUpdate(update);
   const fresh = await store.acceptUpdate({ ...update, accommodationId: "acc-1004" });
-  await pool.query("update sync_jobs set state = 'in_progress', attempts = 1, locked_at = now() - interval '120 seconds' where update_id = $1", [stale.updateId]);
+  await pool.query(
+    "update sync_jobs set state = 'in_progress', attempts = 1, locked_at = now() - interval '120 seconds' where update_id = $1",
+    [stale.updateId],
+  );
   await pool.query("update sync_jobs set state = 'in_progress', attempts = 1, locked_at = now() where update_id = $1", [fresh.updateId]);
   assert.equal(await store.reclaimStale(60), 1);
   const rows = await jobRows(pool);
-  assert.deepEqual(rows.map((j) => [j.state, j.attempts]), [["pending", 1], ["in_progress", 1]]);
+  assert.deepEqual(
+    rows.map((j) => [j.state, j.attempts]),
+    [
+      ["pending", 1],
+      ["in_progress", 1],
+    ],
+  );
   assert.equal(rows[0]?.locked_at, null);
 });

@@ -18,14 +18,34 @@ test("DATA-01: migrations create the schema and are idempotent", async () => {
     const tables = await pool.query<{ table_name: string }>(
       "select table_name from information_schema.tables where table_schema = 'public' order by table_name",
     );
-    assert.deepEqual(tables.rows.map((r) => r.table_name), ["schema_migrations", "sync_jobs", "updates"]);
+    assert.deepEqual(
+      tables.rows.map((r) => r.table_name),
+      ["schema_migrations", "sync_jobs", "updates"],
+    );
     const columns = await pool.query<{ column_name: string }>(
       "select column_name from information_schema.columns where table_name = 'sync_jobs' order by ordinal_position",
     );
-    assert.deepEqual(columns.rows.map((r) => r.column_name), [
-      "id", "seq", "update_id", "accommodation_id", "from_date", "to_date", "available", "price_per_night",
-      "state", "attempts", "next_attempt_at", "locked_at", "last_error_code", "last_error_message", "last_error_at", "finished_at",
-    ]);
+    assert.deepEqual(
+      columns.rows.map((r) => r.column_name),
+      [
+        "id",
+        "seq",
+        "update_id",
+        "accommodation_id",
+        "from_date",
+        "to_date",
+        "available",
+        "price_per_night",
+        "state",
+        "attempts",
+        "next_attempt_at",
+        "locked_at",
+        "last_error_code",
+        "last_error_message",
+        "last_error_at",
+        "finished_at",
+      ],
+    );
   } finally {
     await pool.end();
   }

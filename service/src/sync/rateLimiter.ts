@@ -13,10 +13,13 @@ export const realClock: LimiterClock = {
   sleep: (ms, signal) =>
     new Promise((resolve, reject) => {
       if (signal?.aborted) return reject(signal.reason);
-      const timer = setTimeout(() => {
-        signal?.removeEventListener("abort", onAbort);
-        resolve();
-      }, Math.min(Math.max(0, ms), MAX_TIMER_MS));
+      const timer = setTimeout(
+        () => {
+          signal?.removeEventListener("abort", onAbort);
+          resolve();
+        },
+        Math.min(Math.max(0, ms), MAX_TIMER_MS),
+      );
       const onAbort = () => {
         clearTimeout(timer);
         reject(signal?.reason);

@@ -15,7 +15,13 @@ after(async () => {
   await pool.end();
 });
 
-const oneChunk = (accommodationId: string, day = "2026-10-01") => ({ accommodationId, from: day, to: day, available: true, pricePerNight: 10 });
+const oneChunk = (accommodationId: string, day = "2026-10-01") => ({
+  accommodationId,
+  from: day,
+  to: day,
+  available: true,
+  pricePerNight: 10,
+});
 
 async function jobCount(): Promise<number> {
   return (await pool.query("select count(*)::int as n from sync_jobs")).rows[0].n;

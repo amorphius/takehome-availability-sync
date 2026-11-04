@@ -20,9 +20,10 @@ test("SYNC-05: sends PUT with the API key and JSON body, 200 is success", async 
   const { outcome, durationMs } = await client.putAvailability("acc-1003", body);
   assert.deepEqual(outcome, { kind: "success", status: 200, daysUpdated: 7 });
   assert.ok(durationMs >= 0);
-  assert.deepEqual(portal.requests.map(({ at: _at, ...r }) => r), [
-    { method: "PUT", path: "/api/v1/accommodations/acc-1003/availability", apiKey: "test-key", body },
-  ]);
+  assert.deepEqual(
+    portal.requests.map(({ at: _at, ...r }) => r),
+    [{ method: "PUT", path: "/api/v1/accommodations/acc-1003/availability", apiKey: "test-key", body }],
+  );
 });
 
 test("SYNC-05: 429 is rate_limited with Retry-After, 60 s when the header is unusable", async () => {
@@ -41,11 +42,21 @@ test("SYNC-05: 503 and other 5xx are unavailable, with the portal's code and mes
 });
 
 test("SYNC-05: 400, 401 and 404 are client_error", async () => {
-  portal.respond([notFound("acc-9"), { status: 401, body: { error: { code: "UNAUTHORIZED", message: "no" } } }, { status: 400, body: { error: { code: "RANGE_TOO_LARGE", message: "32 days" } } }]);
+  portal.respond([
+    notFound("acc-9"),
+    { status: 401, body: { error: { code: "UNAUTHORIZED", message: "no" } } },
+    { status: 400, body: { error: { code: "RANGE_TOO_LARGE", message: "32 days" } } },
+  ]);
   const kinds = [];
   for (let i = 0; i < 3; i++) kinds.push((await client.putAvailability("acc-9", body)).outcome);
-  assert.deepEqual(kinds.map((o) => o.kind), ["client_error", "client_error", "client_error"]);
-  assert.deepEqual(kinds.map((o) => (o.kind === "client_error" ? o.code : null)), ["NOT_FOUND", "UNAUTHORIZED", "RANGE_TOO_LARGE"]);
+  assert.deepEqual(
+    kinds.map((o) => o.kind),
+    ["client_error", "client_error", "client_error"],
+  );
+  assert.deepEqual(
+    kinds.map((o) => (o.kind === "client_error" ? o.code : null)),
+    ["NOT_FOUND", "UNAUTHORIZED", "RANGE_TOO_LARGE"],
+  );
 });
 
 test("SYNC-05: no answer within the timeout is timeout; a closed port is network_error", async () => {
@@ -61,8 +72,16 @@ test("SEC-02: a Retry-After above the ceiling is clamped to it", async () => {
   portal.respond([rateLimited(999_999_999), rateLimited(17), { status: 429, body: {} }]);
   const capped = new PortalClient({ baseUrl: portal.url, apiKey: "k", timeoutMs: 200, maxRetryAfterSeconds: 30 });
   assert.deepEqual((await capped.putAvailability("acc-1003", body)).outcome, { kind: "rate_limited", status: 429, retryAfterSeconds: 30 });
-  assert.deepEqual((await capped.putAvailability("acc-1003", body)).outcome, { kind: "rate_limited", status: 429, retryAfterSeconds: 17 }, "below the ceiling it is kept");
-  assert.deepEqual((await capped.putAvailability("acc-1003", body)).outcome, { kind: "rate_limited", status: 429, retryAfterSeconds: 30 }, "the 60 s fallback is clamped too");
+  assert.deepEqual(
+    (await capped.putAvailability("acc-1003", body)).outcome,
+    { kind: "rate_limited", status: 429, retryAfterSeconds: 17 },
+    "below the ceiling it is kept",
+  );
+  assert.deepEqual(
+    (await capped.putAvailability("acc-1003", body)).outcome,
+    { kind: "rate_limited", status: 429, retryAfterSeconds: 30 },
+    "the 60 s fallback is clamped too",
+  );
 });
 
 test("SEC-06: a response body is read only up to the cap; the status still decides the outcome", async () => {

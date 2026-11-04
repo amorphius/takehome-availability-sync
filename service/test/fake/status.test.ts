@@ -51,7 +51,14 @@ test("API-04: a freshly accepted update shows as pending with the documented sha
   const [view] = body.updates;
   assert.equal(view.updateId, accepted.updateId);
   assert.deepEqual(
-    { from: view.from, to: view.to, available: view.available, pricePerNight: view.pricePerNight, status: view.status, chunks: view.chunks },
+    {
+      from: view.from,
+      to: view.to,
+      available: view.available,
+      pricePerNight: view.pricePerNight,
+      status: view.status,
+      chunks: view.chunks,
+    },
     { from: "2026-10-01", to: "2026-11-15", available: true, pricePerNight: 120, status: "pending", chunks: { total: 2, done: 0 } },
   );
   assert.ok(typeof view.receivedAt === "string");
@@ -67,10 +74,14 @@ test("API-04: after delivery the accommodation is synced, with lastSyncedAt and 
   assert.deepEqual(body.jobs, { pending: 0, inProgress: 0, done: 1, failed: 0, superseded: 1 });
   assert.ok(typeof body.lastSyncedAt === "string");
   assert.equal(body.nextAttemptAt, null);
-  assert.deepEqual(body.updates.map((u: { updateId: string; status: string }) => [u.updateId, u.status]), [
-    [newer.updateId, "synced"],
-    [older.updateId, "superseded"],
-  ], "newest first");
+  assert.deepEqual(
+    body.updates.map((u: { updateId: string; status: string }) => [u.updateId, u.status]),
+    [
+      [newer.updateId, "synced"],
+      [older.updateId, "superseded"],
+    ],
+    "newest first",
+  );
 });
 
 test("API-04 SEC-09: a failed job makes the accommodation failed and exposes the last error code, not the portal's text", async () => {

@@ -26,7 +26,10 @@ test("SEC-01 SEC-10: with API_KEY set, data endpoints and /metrics need the key;
   assert.equal(right.statusCode, 202);
 
   assert.equal((await app.inject({ method: "GET", url: "/accommodations/acc-1003/sync-status" })).statusCode, 401);
-  assert.equal((await app.inject({ method: "GET", url: "/accommodations/acc-1003/sync-status", headers: { "x-api-key": "s3cret" } })).statusCode, 200);
+  assert.equal(
+    (await app.inject({ method: "GET", url: "/accommodations/acc-1003/sync-status", headers: { "x-api-key": "s3cret" } })).statusCode,
+    200,
+  );
   assert.equal((await app.inject({ method: "GET", url: "/metrics" })).statusCode, 401);
   assert.equal((await app.inject({ method: "GET", url: "/metrics?x=1", headers: { "x-api-key": "s3cret" } })).statusCode, 200);
   assert.equal((await app.inject({ method: "GET", url: "/nothing" })).statusCode, 401, "unknown routes are not revealed either");

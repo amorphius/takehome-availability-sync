@@ -64,9 +64,7 @@ export function buildServer({ logger, repository, metrics, apiKey, limits }: Ser
     return reply.code(500).send({ error: { code: "INTERNAL", message: "Internal error" } });
   });
 
-  app.setNotFoundHandler((_request, reply) =>
-    reply.code(404).send({ error: { code: "NOT_FOUND", message: "Resource not found" } }),
-  );
+  app.setNotFoundHandler((_request, reply) => reply.code(404).send({ error: { code: "NOT_FOUND", message: "Resource not found" } }));
 
   if (apiKey !== undefined) registerApiKeyAuth(app, apiKey);
   registerUpdatesRoute(app, repository, metrics, limits);
