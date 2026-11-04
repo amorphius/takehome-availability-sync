@@ -108,9 +108,9 @@ docker run --rm -p 3000:3000 -e DATABASE_URL=… -e PORTAL_URL=… -e PORTAL_API
 ```
 
 The image sets `NODE_ENV=production`, so the three secrets are mandatory, runs as `node`,
-and carries a `HEALTHCHECK` on `/health`. `../deploy/k8s.yaml` runs it with readiness and
-liveness probes, resource limits and a grace period longer than the shutdown deadline.
-Keep `replicas: 1` until the limiter is shared (`SPEC.md` section 9).
+and carries a `HEALTHCHECK` on `/health`, which doubles as a readiness and liveness probe.
+Give it a stop grace period above 10 s (the shutdown deadline, `PORTAL_TIMEOUT_MS` + 5 s)
+and run one replica until the limiter is shared (`SPEC.md` section 9).
 
 ## Working here
 

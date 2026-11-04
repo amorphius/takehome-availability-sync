@@ -188,7 +188,7 @@ portal + real PostgreSQL), **portal** (real Portal Sol + real PostgreSQL),
 | OPS-05 | The working harness is versioned in the repository (D-14): `AGENTS.md` (imported by `CLAUDE.md`) states the workflow for people and agents; `scripts/gate.sh` runs typecheck, lint, unit and integration tests and the trace, and exits 1 on any failure; `scripts/check-commit-msg.sh` refuses a `feat`, `fix`, `perf` or `test` commit whose subject names no requirement ID, and checks a whole range of commits in CI. | manual |
 | OPS-06 | `npm run lint` (Biome, lint and format) is clean over `src/` and `test/` and is part of the gate. | manual |
 | OPS-07 | A GitHub Actions workflow runs the commit-message check and the gate on every push and pull request with PostgreSQL as a service container; the real-portal suite is a second job that runs only on demand (`workflow_dispatch`), so the portal's random failures never turn the gate red. | manual |
-| OPS-08 | A `Dockerfile` builds a non-root image with a `HEALTHCHECK` on `/health`; `deploy/k8s.yaml` runs it with readiness and liveness probes on `/health`, resource limits, configuration from a `ConfigMap` and secrets from a `Secret`, and a termination grace period longer than the shutdown deadline of OPS-02. | manual |
+| OPS-08 | A `Dockerfile` builds a non-root image from the sources and production dependencies, with `NODE_ENV=production` (so SEC-08 applies) and a `HEALTHCHECK` on `/health`; it stops cleanly on `SIGTERM` (OPS-02) within a grace period of 20 s. | manual |
 
 ### SEC — hardening (D-13)
 
