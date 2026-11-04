@@ -32,7 +32,12 @@ const queueGauges = createQueueGauges(metrics.registry, pool, log);
 const worker = new Worker({
   observer: metrics.observer,
   store: repository,
-  portal: new PortalClient({ baseUrl: config.portalUrl, apiKey: config.portalApiKey, timeoutMs: config.portalTimeoutMs }),
+  portal: new PortalClient({
+    baseUrl: config.portalUrl,
+    apiKey: config.portalApiKey,
+    timeoutMs: config.portalTimeoutMs,
+    maxRetryAfterSeconds: config.portalMaxRetryAfterSeconds,
+  }),
   limiter: new SlidingWindowLimiter(config.portalRateLimitPerMinute),
   logger: log.child({ component: "worker" }),
   config: {

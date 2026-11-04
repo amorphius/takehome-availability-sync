@@ -3,6 +3,9 @@ export interface LimiterClock {
   sleep: (ms: number, signal?: AbortSignal) => Promise<void>;
 }
 
+/** SEC-02: Node's timers take a signed 32-bit delay; above it setTimeout fires after 1 ms and a waiting loop spins. */
+export const MAX_TIMER_MS = 2_147_483_647;
+
 export const realClock: LimiterClock = {
   now: () => Date.now(),
   sleep: (ms, signal) =>
@@ -11,7 +14,7 @@ export const realClock: LimiterClock = {
       const timer = setTimeout(() => {
         signal?.removeEventListener("abort", onAbort);
         resolve();
-      }, ms);
+      }, Math.min(Math.max(0, ms), MAX_TIMER_MS));
       const onAbort = () => {
         clearTimeout(timer);
         reject(signal?.reason);

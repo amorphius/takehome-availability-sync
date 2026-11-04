@@ -56,3 +56,11 @@ test("SYNC-05: no answer within the timeout is timeout; a closed port is network
   const dead = new PortalClient({ baseUrl: "http://127.0.0.1:1", apiKey: "k", timeoutMs: 200 });
   assert.equal((await dead.putAvailability("acc-1003", body)).outcome.kind, "network_error");
 });
+
+test("SEC-02: a Retry-After above the ceiling is clamped to it", async () => {
+  portal.respond([rateLimited(999_999_999), rateLimited(17), { status: 429, body: {} }]);
+  const capped = new PortalClient({ baseUrl: portal.url, apiKey: "k", timeoutMs: 200, maxRetryAfterSeconds: 30 });
+  assert.deepEqual((await capped.putAvailability("acc-1003", body)).outcome, { kind: "rate_limited", status: 429, retryAfterSeconds: 30 });
+  assert.deepEqual((await capped.putAvailability("acc-1003", body)).outcome, { kind: "rate_limited", status: 429, retryAfterSeconds: 17 }, "below the ceiling it is kept");
+  assert.deepEqual((await capped.putAvailability("acc-1003", body)).outcome, { kind: "rate_limited", status: 429, retryAfterSeconds: 30 }, "the 60 s fallback is clamped too");
+});

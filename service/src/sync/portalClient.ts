@@ -24,11 +24,15 @@ export interface PortalClientOptions {
   baseUrl: string;
   apiKey: string;
   timeoutMs: number;
+  /** SEC-02: a Retry-After above this is clamped to it. */
+  maxRetryAfterSeconds?: number;
   fetch?: typeof fetch;
 }
 
 /** Fallback when a 429 carries no usable Retry-After: one full window. */
 const DEFAULT_RETRY_AFTER_SECONDS = 60;
+/** SEC-02: default ceiling for a Retry-After; the portal never asked for more than 42 s in the probe. */
+export const DEFAULT_MAX_RETRY_AFTER_SECONDS = 300;
 
 function errorBody(text: string): { code: string; message: string } {
   try {
@@ -46,12 +50,14 @@ export class PortalClient {
   readonly #baseUrl: string;
   readonly #apiKey: string;
   readonly #timeoutMs: number;
+  readonly #maxRetryAfterSeconds: number;
   readonly #fetch: typeof fetch;
 
   constructor(options: PortalClientOptions) {
     this.#baseUrl = options.baseUrl.replace(/\/+$/, "");
     this.#apiKey = options.apiKey;
     this.#timeoutMs = options.timeoutMs;
+    this.#maxRetryAfterSeconds = options.maxRetryAfterSeconds ?? DEFAULT_MAX_RETRY_AFTER_SECONDS;
     this.#fetch = options.fetch ?? fetch;
   }
 
@@ -84,7 +90,9 @@ export class PortalClient {
     }
     if (response.status === 429) {
       const header = Number(response.headers.get("retry-after"));
-      const retryAfterSeconds = Number.isInteger(header) && header > 0 ? header : DEFAULT_RETRY_AFTER_SECONDS;
+      // SEC-02: the header is the portal's word, not an order; never wait longer than the configured ceiling.
+      const asked = Number.isInteger(header) && header > 0 ? header : DEFAULT_RETRY_AFTER_SECONDS;
+      const retryAfterSeconds = Math.min(asked, this.#maxRetryAfterSeconds);
       return done({ kind: "rate_limited", status: 429, retryAfterSeconds });
     }
     const { code, message } = errorBody(text);

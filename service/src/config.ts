@@ -5,6 +5,7 @@ export interface Config {
   portalApiKey: string;
   portalTimeoutMs: number;
   portalRateLimitPerMinute: number;
+  portalMaxRetryAfterSeconds: number;
   workerConcurrency: number;
   workerPollMs: number;
   maxAttempts: number;
@@ -47,6 +48,7 @@ export function loadConfig(env: Env = process.env): Config {
     portalApiKey: string(env, "PORTAL_API_KEY", "sol-demo-key"),
     portalTimeoutMs: integer(env, "PORTAL_TIMEOUT_MS", 5000, 1),
     portalRateLimitPerMinute: integer(env, "PORTAL_RATE_LIMIT_PER_MINUTE", 30, 1),
+    portalMaxRetryAfterSeconds: integer(env, "PORTAL_MAX_RETRY_AFTER_SECONDS", 300, 1),
     workerConcurrency: integer(env, "WORKER_CONCURRENCY", 4, 1, 100),
     workerPollMs: integer(env, "WORKER_POLL_MS", 250, 1),
     maxAttempts: integer(env, "MAX_ATTEMPTS", 8, 1),

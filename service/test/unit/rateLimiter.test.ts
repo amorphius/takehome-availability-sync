@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { SlidingWindowLimiter, type LimiterClock } from "../../src/sync/rateLimiter.ts";
+import { SlidingWindowLimiter, realClock, MAX_TIMER_MS, type LimiterClock } from "../../src/sync/rateLimiter.ts";
 
 /** A clock whose sleep advances time instantly and records how long it was asked to wait. */
 function fakeClock(start = 1_000_000) {
@@ -68,4 +68,21 @@ test("SYNC-12: an aborted wait rejects instead of acquiring", async () => {
   await limiter.acquire();
   await assert.rejects(limiter.acquire(controller.signal), /stop/);
   assert.equal(limiter.inWindow, 1);
+});
+
+test("SEC-02: the real clock never asks Node for a timer it cannot hold, so a long pause does not spin", async () => {
+  const warnings: string[] = [];
+  const onWarning = (w: Error) => warnings.push(w.name);
+  process.on("warning", onWarning);
+  const controller = new AbortController();
+  let settled = false;
+  const sleep = realClock.sleep(999_999_999_000, controller.signal).then(() => (settled = true), () => (settled = true));
+  await new Promise((r) => setTimeout(r, 50));
+  assert.equal(settled, false, "still sleeping after 50 ms");
+  controller.abort(new Error("done"));
+  await sleep;
+  await new Promise((r) => setImmediate(r));
+  process.off("warning", onWarning);
+  assert.deepEqual(warnings.filter((n) => n === "TimeoutOverflowWarning"), []);
+  assert.equal(MAX_TIMER_MS, 2 ** 31 - 1);
 });
