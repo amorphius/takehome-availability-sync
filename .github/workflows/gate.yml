@@ -1,0 +1,68 @@
+# OPS-07: the same gate as scripts/gate.sh, on every push and pull request.
+name: gate
+on:
+  push:
+  pull_request:
+
+jobs:
+  gate:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:18
+        env:
+          POSTGRES_USER: sync
+          POSTGRES_PASSWORD: sync
+          POSTGRES_DB: sync
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U sync -d sync"
+          --health-interval 5s --health-timeout 3s --health-retries 10
+    env:
+      DATABASE_URL: postgres://sync:sync@localhost:5432/sync
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # the commit check and the trace read the whole history
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: service/package-lock.json
+      - run: npm ci --prefix service
+      - name: commit messages name their requirement
+        run: scripts/check-commit-msg.sh --range "$(git rev-list --max-parents=0 HEAD)..HEAD"
+      - name: typecheck, lint, unit, fake, trace
+        run: scripts/gate.sh
+
+  portal:
+    # The real Portal Sol: rate-bound, about two minutes, random failures by design.
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:18
+        env:
+          POSTGRES_USER: sync
+          POSTGRES_PASSWORD: sync
+          POSTGRES_DB: sync
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U sync -d sync"
+          --health-interval 5s --health-timeout 3s --health-retries 10
+      portal-sol:
+        image: ghcr.io/avantio/portal-sol:latest
+        ports: ["4000:4000"]
+    env:
+      DATABASE_URL: postgres://sync:sync@localhost:5432/sync
+      PORTAL_URL: http://localhost:4000
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: service/package-lock.json
+      - run: npm ci --prefix service
+      - name: wait for the portal
+        run: for i in $(seq 1 30); do curl -sf http://localhost:4000/health && exit 0; sleep 1; done; exit 1
+      - run: npm --prefix service run test:portal
