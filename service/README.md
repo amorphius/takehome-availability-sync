@@ -117,7 +117,7 @@ Keep `replicas: 1` until the limiter is shared (`SPEC.md` section 9).
 The rules for people and agents are in [`../AGENTS.md`](../AGENTS.md): spec row first, one
 requirement per commit with its ID in the subject (`scripts/check-commit-msg.sh`), and
 `scripts/gate.sh` green before every commit. `.github/workflows/gate.yml` runs the same gate
-and the real-portal suite on every push.
+on every push; the real-portal suite is a second job started by hand from the Actions tab.
 
 ## Layout
 
