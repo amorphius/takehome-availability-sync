@@ -1,0 +1,68 @@
+# OPS-08: one way to run the service on Kubernetes. Replace the image and the Secret values.
+# replicas stays 1 until the limiter is shared (SPEC.md D-06, section 9): two replicas would each
+# believe they own the portal's 30 calls a minute.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: availability-sync
+data:
+  PORTAL_URL: "http://portal-sol:4000"
+  LOG_LEVEL: "info"
+  WORKER_CONCURRENCY: "4"
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: availability-sync
+type: Opaque
+stringData:
+  DATABASE_URL: "postgres://sync:CHANGE-ME@postgres:5432/sync?sslmode=verify-full"
+  PORTAL_API_KEY: "CHANGE-ME"
+  API_KEY: "CHANGE-ME"
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: availability-sync
+spec:
+  replicas: 1
+  selector:
+    matchLabels: { app: availability-sync }
+  template:
+    metadata:
+      labels: { app: availability-sync }
+    spec:
+      # Longer than the shutdown deadline (PORTAL_TIMEOUT_MS + 5 s, OPS-02) so in-flight portal calls finish.
+      terminationGracePeriodSeconds: 20
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+      containers:
+        - name: service
+          image: ghcr.io/CHANGE-ME/availability-sync:latest
+          ports: [{ containerPort: 3000, name: http }]
+          envFrom:
+            - configMapRef: { name: availability-sync }
+            - secretRef: { name: availability-sync }
+          readinessProbe:
+            httpGet: { path: /health, port: http }
+            periodSeconds: 5
+          livenessProbe:
+            httpGet: { path: /health, port: http }
+            initialDelaySeconds: 10
+            periodSeconds: 15
+          resources:
+            requests: { cpu: 100m, memory: 128Mi }
+            limits: { cpu: "1", memory: 256Mi }
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities: { drop: [ALL] }
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: availability-sync
+spec:
+  selector: { app: availability-sync }
+  ports: [{ port: 3000, targetPort: http }]
