@@ -42,7 +42,8 @@ export interface SyncStatusView {
   jobs: Record<"pending" | "inProgress" | "done" | "failed" | "superseded", number>;
   lastSyncedAt: Date | null;
   nextAttemptAt: Date | null;
-  lastError: { code: string; message: string; at: Date } | null;
+  /** SEC-09: the code only; the portal's message is third-party text and stays in the database and the logs. */
+  lastError: { code: string; at: Date } | null;
   updates: UpdateStatusView[];
 }
 
@@ -243,8 +244,8 @@ export class SyncRepository implements JobStore {
          from sync_jobs where accommodation_id = $1 group by state`,
         [accommodationId],
       ),
-      this.pool.query<{ last_error_code: string; last_error_message: string; last_error_at: Date }>(
-        `select last_error_code, last_error_message, last_error_at from sync_jobs
+      this.pool.query<{ last_error_code: string; last_error_at: Date }>(
+        `select last_error_code, last_error_at from sync_jobs
          where accommodation_id = $1 and last_error_at is not null order by last_error_at desc limit 1`,
         [accommodationId],
       ),
@@ -291,7 +292,7 @@ export class SyncRepository implements JobStore {
       jobs,
       lastSyncedAt,
       nextAttemptAt,
-      lastError: error ? { code: error.last_error_code, message: error.last_error_message, at: error.last_error_at } : null,
+      lastError: error ? { code: error.last_error_code, at: error.last_error_at } : null,
       updates: updateViews,
     };
   }

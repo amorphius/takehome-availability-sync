@@ -73,7 +73,7 @@ test("API-04: after delivery the accommodation is synced, with lastSyncedAt and 
   ], "newest first");
 });
 
-test("API-04: a failed job makes the accommodation failed and exposes the last error", async () => {
+test("API-04 SEC-09: a failed job makes the accommodation failed and exposes the last error code, not the portal's text", async () => {
   portal.respond(() => notFound("acc-1003"));
   const { worker, store } = testWorker(pool, { portalUrl: portal.url });
   await store.acceptUpdate(update);
@@ -83,9 +83,12 @@ test("API-04: a failed job makes the accommodation failed and exposes the last e
   const { body } = await status("acc-1003");
   assert.equal(body.status, "failed");
   assert.equal(body.jobs.failed, 1);
+  assert.deepEqual(Object.keys(body.lastError).sort(), ["at", "code"]);
   assert.equal(body.lastError.code, "NOT_FOUND");
-  assert.match(body.lastError.message, /acc-1003/);
   assert.ok(typeof body.lastError.at === "string");
+  assert.doesNotMatch(JSON.stringify(body), /not found/i, "the portal's message is not in the response");
+  const row = await pool.query("select last_error_message from sync_jobs where accommodation_id = 'acc-1003'");
+  assert.match(row.rows[0].last_error_message, /acc-1003 not found/, "but it is kept in the database");
   assert.equal(body.updates[0].status, "failed");
   assert.equal((await status("acc-1004")).body.status, "synced", "other accommodations are unaffected");
 });
