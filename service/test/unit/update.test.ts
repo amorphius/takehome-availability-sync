@@ -43,3 +43,13 @@ test("API-02: RANGE_TOO_LARGE above 366 days, allowed at 366", () => {
   assert.ok(parseUpdateRequest({ ...valid, from: "2026-01-01", to: "2027-01-01" }));
   rejects({ ...valid, from: "2026-01-01", to: "2027-01-02" }, "RANGE_TOO_LARGE", /367 days/);
 });
+
+test("SEC-04: accommodationId is bounded in length and character set", () => {
+  assert.equal(parseUpdateRequest({ ...valid, accommodationId: "a".repeat(64) }).accommodationId.length, 64);
+  assert.equal(parseUpdateRequest({ ...valid, accommodationId: "Acc_1003.v2-x" }).accommodationId, "Acc_1003.v2-x");
+  rejects({ ...valid, accommodationId: "a".repeat(65) }, "INVALID_BODY", /at most 64/);
+  rejects({ ...valid, accommodationId: "acc 1003" }, "INVALID_BODY", /accommodationId/);
+  rejects({ ...valid, accommodationId: "acc/1003" }, "INVALID_BODY", /accommodationId/);
+  rejects({ ...valid, accommodationId: "acc\n1003" }, "INVALID_BODY", /accommodationId/);
+  rejects({ ...valid, accommodationId: " acc-1003" }, "INVALID_BODY", /accommodationId/);
+});

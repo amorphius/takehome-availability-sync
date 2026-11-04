@@ -1,6 +1,9 @@
 import { parseDate, daysInclusive } from "./dates.ts";
 
 export const MAX_UPDATE_DAYS = 366;
+/** SEC-04: ids are stored, indexed, logged and put in a URL; keep them short and plain. */
+export const MAX_ACCOMMODATION_ID_LENGTH = 64;
+const ACCOMMODATION_ID_RE = /^[A-Za-z0-9._-]+$/;
 
 export interface UpdateRequest {
   accommodationId: string;
@@ -40,6 +43,9 @@ export function parseUpdateRequest(body: unknown): UpdateRequest {
   const { accommodationId, from, to, available, pricePerNight } = record;
   if (typeof accommodationId !== "string" || accommodationId.trim() === "") {
     throw new ApiError(400, "INVALID_BODY", '"accommodationId" must be a non-empty string');
+  }
+  if (accommodationId.length > MAX_ACCOMMODATION_ID_LENGTH || !ACCOMMODATION_ID_RE.test(accommodationId)) {
+    throw new ApiError(400, "INVALID_BODY", `"accommodationId" must be at most ${MAX_ACCOMMODATION_ID_LENGTH} characters of letters, digits, ".", "_" or "-"`);
   }
   if (typeof available !== "boolean") throw new ApiError(400, "INVALID_BODY", '"available" must be a boolean');
   if (typeof pricePerNight !== "number" || !Number.isFinite(pricePerNight) || pricePerNight < 0) {
