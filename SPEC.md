@@ -120,6 +120,7 @@ queue; an update's status is derived from its jobs (API-05).
 | D-11 | Single process, but the claim query is written for several (`FOR UPDATE SKIP LOCKED`) and stale leases are reclaimed. | Correct today, scales out later without redesign. |
 | D-12 | Deterministic failure tests use an in-process fake portal; the real Portal Sol is used for end-to-end tests only. | The real portal's failures are random and rate-bound; a fake makes `429`, `503` and timeout behaviour testable in milliseconds. |
 | D-13 | Every value that crosses the boundary is bounded before use: client bodies (size, id, price), portal answers (`Retry-After`, body size), the environment (no secret defaults in production). A shared API key guards the data endpoints until a gateway does. | Added after a security review of the first version (SEC-01..12). None of it changes the sync behaviour; each is a cap or a check at the edge, so a hostile client or a broken portal costs bounded memory, CPU and queue space. The key is a stop-gap: it keeps the service closed by default, not a substitute for real identity. |
+| D-14 | The harness that produced this repository is part of it: the workflow in `AGENTS.md`, one gate script every commit must pass, a commit-message check, and CI that runs the same gate. | Added after the first version. The spec is the context an agent consumes; the gate and the commit check are the control loop that keeps its output honest; CI makes the loop the same for everyone. Keeping them in the repository means a reviewer, or the next agent, works under the same rules without being told. Cost: a few files and a lint pass over code written before the linter existed. |
 
 ## 6. Requirements
 
@@ -184,6 +185,10 @@ portal + real PostgreSQL), **portal** (real Portal Sol + real PostgreSQL),
 | OPS-02 | On `SIGTERM`/`SIGINT` the service stops claiming jobs, waits up to `PORTAL_TIMEOUT_MS` for in-flight calls, closes the database pool and exits 0. | manual |
 | OPS-03 | `service/README.md` explains how to install, start, test and configure the service, including the portal URL. | manual |
 | OPS-04 | `scripts/trace.sh` prints, for every requirement ID in this file, the commits and test files that mention it, and lists IDs with neither. | manual |
+| OPS-05 | The working harness is versioned in the repository (D-14): `AGENTS.md` (imported by `CLAUDE.md`) states the workflow for people and agents; `scripts/gate.sh` runs typecheck, lint, unit and integration tests and the trace, and exits 1 on any failure; `scripts/check-commit-msg.sh` refuses a `feat`, `fix`, `perf` or `test` commit whose subject names no requirement ID, and checks a whole range of commits in CI. | manual |
+| OPS-06 | `npm run lint` (Biome, lint and format) is clean over `src/` and `test/` and is part of the gate. | manual |
+| OPS-07 | A GitHub Actions workflow runs the gate on every push and pull request against PostgreSQL and the Portal Sol image as service containers, plus the real-portal suite as its own job. | manual |
+| OPS-08 | A `Dockerfile` builds a non-root image with a `HEALTHCHECK` on `/health`; `deploy/k8s.yaml` runs it with readiness and liveness probes on `/health`, resource limits, configuration from a `ConfigMap` and secrets from a `Secret`, and a termination grace period longer than the shutdown deadline of OPS-02. | manual |
 
 ### SEC — hardening (D-13)
 
