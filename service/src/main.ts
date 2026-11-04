@@ -48,7 +48,17 @@ const worker = new Worker({
   },
 });
 
-const app = buildServer({ logger: log, repository, metrics, apiKey: config.apiKey });
+const app = buildServer({
+  logger: log,
+  repository,
+  metrics,
+  apiKey: config.apiKey,
+  limits: {
+    updatesRateLimitPerMinute: config.updatesRateLimitPerMinute,
+    maxPendingJobsPerAccommodation: config.maxPendingJobsPerAccommodation,
+    maxPendingJobs: config.maxPendingJobs,
+  },
+});
 await app.listen({ port: config.port, host: config.host });
 await worker.start();
 queueGauges.start(5000);

@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import type { Pool } from "../db/pool.ts";
 import type { UpdateRequest } from "../domain/update.ts";
 import { splitRange } from "../domain/dates.ts";
+import { ApiError } from "../domain/update.ts";
 import { deriveUpdateStatus, deriveAccommodationStatus, type UpdateStatus, type AccommodationStatus } from "../domain/status.ts";
 
 export type JobState = "pending" | "in_progress" | "done" | "failed" | "superseded";
@@ -48,6 +49,12 @@ export interface SyncStatusView {
 }
 
 export const STATUS_UPDATES_SHOWN = 20;
+
+/** SEC-03: queue caps checked inside the accept transaction, after superseding. */
+export interface QueueLimits {
+  maxPendingJobsPerAccommodation: number;
+  maxPendingJobs: number;
+}
 
 export interface Accepted {
   updateId: string;
@@ -121,7 +128,7 @@ export class SyncRepository implements JobStore {
    * SYNC-04: pending jobs of the same accommodation that lie inside the new range are superseded first;
    * the new chunks will overwrite every day they would have set. In-progress jobs are left alone.
    */
-  async acceptUpdate(request: UpdateRequest): Promise<Accepted> {
+  async acceptUpdate(request: UpdateRequest, limits?: QueueLimits): Promise<Accepted> {
     const updateId = randomUUID();
     const chunks = splitRange(request.from, request.to);
     const client = await this.pool.connect();
@@ -134,6 +141,21 @@ export class SyncRepository implements JobStore {
         [request.accommodationId, request.from, request.to],
       );
       superseded = covered.rowCount ?? 0;
+      if (limits) {
+        // A soft cap: two accepts racing at the limit may both pass; the point is to stop a flood, not to count exactly.
+        const open = await client.query<{ mine: number; total: number }>(
+          `select count(*) filter (where accommodation_id = $1)::int as mine, count(*)::int as total
+           from sync_jobs where state in ('pending', 'in_progress')`,
+          [request.accommodationId],
+        );
+        const { mine, total } = open.rows[0]!;
+        if (mine + chunks.length > limits.maxPendingJobsPerAccommodation) {
+          throw new ApiError(429, "QUEUE_FULL", `Accommodation ${request.accommodationId} already has ${mine} jobs waiting; at most ${limits.maxPendingJobsPerAccommodation} are allowed`);
+        }
+        if (total + chunks.length > limits.maxPendingJobs) {
+          throw new ApiError(503, "QUEUE_FULL", `${total} jobs are waiting; the service accepts no more until the queue drains`);
+        }
+      }
       await client.query(
         `insert into updates (id, accommodation_id, from_date, to_date, available, price_per_night)
          values ($1, $2, $3, $4, $5, $6)`,

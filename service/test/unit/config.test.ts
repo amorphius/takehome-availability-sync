@@ -18,6 +18,9 @@ test("OPS-01: defaults apply when the environment is empty", () => {
   assert.equal(config.maxAttempts, 8);
   assert.equal(config.leaseSeconds, 60);
   assert.equal(config.logLevel, "info");
+  assert.equal(config.updatesRateLimitPerMinute, 600);
+  assert.equal(config.maxPendingJobsPerAccommodation, 50);
+  assert.equal(config.maxPendingJobs, 10_000);
 });
 
 test("OPS-01: values are read from the environment", () => {

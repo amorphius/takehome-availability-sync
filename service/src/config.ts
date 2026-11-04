@@ -15,6 +15,10 @@ export interface Config {
   maxAttempts: number;
   leaseSeconds: number;
   logLevel: string;
+  /** SEC-03: inbound caps. */
+  updatesRateLimitPerMinute: number;
+  maxPendingJobsPerAccommodation: number;
+  maxPendingJobs: number;
 }
 
 export class ConfigError extends Error {}
@@ -74,5 +78,8 @@ export function loadConfig(env: Env = process.env): Config {
     maxAttempts: integer(env, "MAX_ATTEMPTS", 8, 1),
     leaseSeconds: integer(env, "LEASE_SECONDS", 60, 1),
     logLevel,
+    updatesRateLimitPerMinute: integer(env, "UPDATES_RATE_LIMIT_PER_MINUTE", 600, 1),
+    maxPendingJobsPerAccommodation: integer(env, "MAX_PENDING_JOBS_PER_ACCOMMODATION", 50, 1),
+    maxPendingJobs: integer(env, "MAX_PENDING_JOBS", 10_000, 1),
   };
 }

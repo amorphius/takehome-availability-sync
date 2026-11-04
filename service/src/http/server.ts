@@ -1,7 +1,7 @@
 import Fastify, { type FastifyBaseLogger, type FastifyInstance } from "fastify";
 import type { Logger } from "../observability/logger.ts";
 import { ApiError } from "../domain/update.ts";
-import type { SyncRepository } from "../sync/repository.ts";
+import type { SyncRepository, QueueLimits } from "../sync/repository.ts";
 import { registerUpdatesRoute } from "./routes/updates.ts";
 import { registerStatusRoute } from "./routes/status.ts";
 import { registerHealthRoute } from "./routes/health.ts";
@@ -15,6 +15,12 @@ export interface ServerDeps {
   metrics: Metrics;
   /** SEC-01: undefined leaves every endpoint open (development). */
   apiKey?: string | undefined;
+  /** SEC-03: undefined means no inbound caps (tests). */
+  limits?: InboundLimits | undefined;
+}
+
+export interface InboundLimits extends QueueLimits {
+  updatesRateLimitPerMinute: number;
 }
 
 /** SEC-07: the largest valid body is under 300 bytes; slow or idle clients do not hold a socket for long. */
@@ -22,7 +28,7 @@ export const BODY_LIMIT_BYTES = 16 * 1024;
 export const REQUEST_TIMEOUT_MS = 10_000;
 export const CONNECTION_TIMEOUT_MS = 30_000;
 
-export function buildServer({ logger, repository, metrics, apiKey }: ServerDeps): FastifyInstance {
+export function buildServer({ logger, repository, metrics, apiKey, limits }: ServerDeps): FastifyInstance {
   // pino's Logger type is stricter than FastifyBaseLogger only in optional fields; the instance is compatible.
   const app = Fastify({
     loggerInstance: logger as unknown as FastifyBaseLogger,
@@ -63,7 +69,7 @@ export function buildServer({ logger, repository, metrics, apiKey }: ServerDeps)
   );
 
   if (apiKey !== undefined) registerApiKeyAuth(app, apiKey);
-  registerUpdatesRoute(app, repository, metrics);
+  registerUpdatesRoute(app, repository, metrics, limits);
   registerStatusRoute(app, repository);
   registerHealthRoute(app, repository.pool);
   registerMetricsRoute(app, metrics.registry);
