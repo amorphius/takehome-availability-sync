@@ -50,6 +50,18 @@ as SEC-01..12 with the same one-requirement-per-commit rule. One test it wrote f
 measured heap growth to prove a response body was not buffered; that was flaky because
 the fake portal lives in the same process, and it was replaced by a counting stream.
 
+## The harness, put into the repository
+
+The rules I worked under were in my head and in the chat: spec row first, one requirement
+per commit, a gate script in a scratch folder. Avantio's posting treats that harness as a
+versioned engineering asset, and it should be: `AGENTS.md` now states the loop,
+`scripts/gate.sh` is the one check (typecheck, Biome, both test tiers, the trace),
+`scripts/check-commit-msg.sh` refuses a behaviour commit that names no requirement or an
+ID that is not in the spec, and CI runs the same gate plus the real-portal suite. The first
+version of the commit check did not even parse: bash could not take the regex inline. The
+linter arrived after 40 commits, so its first run reformatted 23 files; the only real
+finding was one string concatenation.
+
 ## Left out, and next
 
 In the order I would do them: a re-queue endpoint for failed jobs (today an

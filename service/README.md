@@ -89,6 +89,8 @@ npm run test:unit      # no I/O
 npm run test:fake      # real PostgreSQL, in-process fake portal: deterministic 429 / 503 / timeouts
 npm run test:portal    # real PostgreSQL and the real Portal Sol on PORTAL_URL (about a minute, rate-bound)
 npm run typecheck
+npm run lint                   # Biome: lint + format check (npm run lint:fix to apply)
+../scripts/gate.sh             # all of the above plus the requirement trace; CI runs the same
 ```
 
 Integration tests use `DATABASE_URL` (same default as the service) and **truncate
@@ -98,9 +100,29 @@ you care about. The portal tests call the portal's `POST /__admin/reset`.
 Each test is named after the requirement it verifies (`SYNC-11: …`), and every commit
 names the requirements it implements; `../scripts/trace.sh` prints the mapping.
 
+## Container
+
+```bash
+docker build -t availability-sync .
+docker run --rm -p 3000:3000 -e DATABASE_URL=… -e PORTAL_URL=… -e PORTAL_API_KEY=… -e API_KEY=… availability-sync
+```
+
+The image sets `NODE_ENV=production`, so the three secrets are mandatory, runs as `node`,
+and carries a `HEALTHCHECK` on `/health`. `../deploy/k8s.yaml` runs it with readiness and
+liveness probes, resource limits and a grace period longer than the shutdown deadline.
+Keep `replicas: 1` until the limiter is shared (`SPEC.md` section 9).
+
+## Working here
+
+The rules for people and agents are in [`../AGENTS.md`](../AGENTS.md): spec row first, one
+requirement per commit with its ID in the subject (`scripts/check-commit-msg.sh`), and
+`scripts/gate.sh` green before every commit. `.github/workflows/gate.yml` runs the same gate
+and the real-portal suite on every push.
+
 ## Layout
 
 ```
+Dockerfile                image: sources + production deps, non-root, HEALTHCHECK
 src/
   main.ts                 wiring, start-up, graceful shutdown
   config.ts               environment → Config
