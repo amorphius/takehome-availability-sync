@@ -69,3 +69,25 @@ test("SEC-07: a body above 16 KiB is 413 BODY_TOO_LARGE and the server has reque
   assert.equal((await pool.query("select count(*)::int as n from updates where accommodation_id like 'xxxx%'")).rows[0].n, 0);
   await app.close();
 });
+
+test("SEC-12: the same Idempotency-Key answers with the original update and creates nothing new", async () => {
+  const { app, repository } = testServer(pool);
+  const headers = { "idempotency-key": "order-7f3a" };
+  const first = await app.inject({ method: "POST", url: "/updates", payload: body, headers });
+  assert.equal(first.statusCode, 202);
+  const again = await app.inject({ method: "POST", url: "/updates", payload: body, headers });
+  assert.equal(again.statusCode, 202);
+  assert.deepEqual(again.json(), first.json(), "same updateId and chunks");
+  assert.equal((await pool.query("select count(*)::int as n from updates where idempotency_key = 'order-7f3a'")).rows[0].n, 1);
+  assert.equal((await repository.jobsOfUpdate(first.json().updateId)).length, 2);
+
+  const other = await app.inject({ method: "POST", url: "/updates", payload: body, headers: { "idempotency-key": "order-7f3b" } });
+  assert.notEqual(other.json().updateId, first.json().updateId, "a different key is a new update");
+  const noKey = await app.inject({ method: "POST", url: "/updates", payload: body });
+  assert.notEqual(noKey.json().updateId, first.json().updateId, "no key: never replayed");
+
+  const tooLong = await app.inject({ method: "POST", url: "/updates", payload: body, headers: { "idempotency-key": "k".repeat(129) } });
+  assert.equal(tooLong.statusCode, 400);
+  assert.match(tooLong.json().error.message, /Idempotency-Key/);
+  await app.close();
+});

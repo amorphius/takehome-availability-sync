@@ -1,5 +1,5 @@
 import type { FastifyInstance, onRequestHookHandler } from "fastify";
-import { parseUpdateRequest } from "../../domain/update.ts";
+import { parseUpdateRequest, ApiError } from "../../domain/update.ts";
 import type { SyncRepository } from "../../sync/repository.ts";
 import type { Metrics } from "../../observability/metrics.ts";
 import type { InboundLimits } from "../server.ts";
@@ -19,17 +19,32 @@ function clientRateLimit(limit: number): onRequestHookHandler {
   };
 }
 
+/** SEC-12: the key is the client's; it only has to be present and of sane length. */
+export const MAX_IDEMPOTENCY_KEY_LENGTH = 128;
+function idempotencyKey(header: string | string[] | undefined): string | undefined {
+  if (header === undefined) return undefined;
+  if (typeof header !== "string" || header.length < 1 || header.length > MAX_IDEMPOTENCY_KEY_LENGTH) {
+    throw new ApiError(400, "INVALID_BODY", `Idempotency-Key must be 1 to ${MAX_IDEMPOTENCY_KEY_LENGTH} characters`);
+  }
+  return header;
+}
+
 /** API-01: accept an update; it is durable before the 202 leaves. */
 export function registerUpdatesRoute(app: FastifyInstance, repository: SyncRepository, metrics: Metrics, limits?: InboundLimits): void {
   const options = limits ? { onRequest: clientRateLimit(limits.updatesRateLimitPerMinute) } : {};
   app.post("/updates", options, async (request, reply) => {
+    const key = idempotencyKey(request.headers["idempotency-key"]);
     const update = parseUpdateRequest(request.body);
-    const accepted = await repository.acceptUpdate(update, limits);
-    metrics.updatesReceived.inc();
-    request.log.info(
-      { updateId: accepted.updateId, accommodationId: update.accommodationId, chunks: accepted.chunks },
-      "update accepted",
-    );
+    const accepted = await repository.acceptUpdate(update, limits, key);
+    if (accepted.replayed) {
+      request.log.info({ updateId: accepted.updateId, accommodationId: update.accommodationId }, "update replayed for Idempotency-Key");
+    } else {
+      metrics.updatesReceived.inc();
+      request.log.info(
+        { updateId: accepted.updateId, accommodationId: update.accommodationId, chunks: accepted.chunks },
+        "update accepted",
+      );
+    }
     return reply.code(202).send({
       updateId: accepted.updateId,
       accommodationId: update.accommodationId,

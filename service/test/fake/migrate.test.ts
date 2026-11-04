@@ -12,7 +12,7 @@ test("DATA-01: migrations create the schema and are idempotent", async () => {
   try {
     await pool.query("drop table if exists sync_jobs, updates, schema_migrations");
     const first = await migrate(pool);
-    assert.deepEqual(first, ["001_init.sql"]);
+    assert.deepEqual(first, ["001_init.sql", "002_idempotency_key.sql"]);
     const second = await migrate(pool);
     assert.deepEqual(second, []);
     const tables = await pool.query<{ table_name: string }>(

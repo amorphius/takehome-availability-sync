@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import type { Pool } from "../db/pool.ts";
+import type { Pool, Queryable } from "../db/pool.ts";
 import type { UpdateRequest } from "../domain/update.ts";
 import { splitRange } from "../domain/dates.ts";
 import { ApiError } from "../domain/update.ts";
@@ -60,7 +60,11 @@ export interface Accepted {
   updateId: string;
   chunks: number;
   superseded: number;
+  /** SEC-12: true when an earlier request with the same Idempotency-Key was answered instead. */
+  replayed: boolean;
 }
+
+const UNIQUE_VIOLATION = "23505";
 
 interface JobRow {
   id: string;
@@ -128,13 +132,20 @@ export class SyncRepository implements JobStore {
    * SYNC-04: pending jobs of the same accommodation that lie inside the new range are superseded first;
    * the new chunks will overwrite every day they would have set. In-progress jobs are left alone.
    */
-  async acceptUpdate(request: UpdateRequest, limits?: QueueLimits): Promise<Accepted> {
+  async acceptUpdate(request: UpdateRequest, limits?: QueueLimits, idempotencyKey?: string): Promise<Accepted> {
     const updateId = randomUUID();
     const chunks = splitRange(request.from, request.to);
     const client = await this.pool.connect();
     let superseded = 0;
     try {
       await client.query("begin");
+      if (idempotencyKey !== undefined) {
+        const earlier = await this.#replay(client, idempotencyKey);
+        if (earlier) {
+          await client.query("rollback");
+          return earlier;
+        }
+      }
       const covered = await client.query(
         `update sync_jobs set state = 'superseded', finished_at = now()
          where accommodation_id = $1 and state = 'pending' and from_date >= $2 and to_date <= $3`,
@@ -157,9 +168,9 @@ export class SyncRepository implements JobStore {
         }
       }
       await client.query(
-        `insert into updates (id, accommodation_id, from_date, to_date, available, price_per_night)
-         values ($1, $2, $3, $4, $5, $6)`,
-        [updateId, request.accommodationId, request.from, request.to, request.available, request.pricePerNight],
+        `insert into updates (id, accommodation_id, from_date, to_date, available, price_per_night, idempotency_key)
+         values ($1, $2, $3, $4, $5, $6, $7)`,
+        [updateId, request.accommodationId, request.from, request.to, request.available, request.pricePerNight, idempotencyKey ?? null],
       );
       for (const chunk of chunks) {
         await client.query(
@@ -171,11 +182,27 @@ export class SyncRepository implements JobStore {
       await client.query("commit");
     } catch (error) {
       await client.query("rollback");
+      // SEC-12: two requests with the same key raced; the one that lost answers with the winner's update.
+      if (idempotencyKey !== undefined && (error as { code?: string }).code === UNIQUE_VIOLATION) {
+        const earlier = await this.#replay(client, idempotencyKey);
+        if (earlier) return earlier;
+      }
       throw error;
     } finally {
       client.release();
     }
-    return { updateId, chunks: chunks.length, superseded };
+    return { updateId, chunks: chunks.length, superseded, replayed: false };
+  }
+
+  /** SEC-12: the answer already given for this key, or null. */
+  async #replay(client: Queryable, idempotencyKey: string): Promise<Accepted | null> {
+    const earlier = await client.query<{ id: string; chunks: number }>(
+      `select u.id, (select count(*) from sync_jobs j where j.update_id = u.id)::int as chunks
+       from updates u where u.idempotency_key = $1`,
+      [idempotencyKey],
+    );
+    const row = earlier.rows[0];
+    return row ? { updateId: row.id, chunks: row.chunks, superseded: 0, replayed: true } : null;
   }
 
   /**
