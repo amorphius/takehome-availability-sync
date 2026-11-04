@@ -119,6 +119,7 @@ queue; an update's status is derived from its jobs (API-05).
 | D-10 | Fastify 5, `pg` with plain SQL, `pino`, `prom-client`; Node's built-in test runner; TypeScript run directly by Node 24, `tsc` only type-checks. | Few dependencies, no build step, nothing a reviewer has to learn. |
 | D-11 | Single process, but the claim query is written for several (`FOR UPDATE SKIP LOCKED`) and stale leases are reclaimed. | Correct today, scales out later without redesign. |
 | D-12 | Deterministic failure tests use an in-process fake portal; the real Portal Sol is used for end-to-end tests only. | The real portal's failures are random and rate-bound; a fake makes `429`, `503` and timeout behaviour testable in milliseconds. |
+| D-13 | Every value that crosses the boundary is bounded before use: client bodies (size, id, price), portal answers (`Retry-After`, body size), the environment (no secret defaults in production). A shared API key guards the data endpoints until a gateway does. | Added after a security review of the first version (SEC-01..12). None of it changes the sync behaviour; each is a cap or a check at the edge, so a hostile client or a broken portal costs bounded memory, CPU and queue space. The key is a stop-gap: it keeps the service closed by default, not a substitute for real identity. |
 
 ## 6. Requirements
 
@@ -140,7 +141,7 @@ portal + real PostgreSQL), **portal** (real Portal Sol + real PostgreSQL),
 | API-01 | `POST /updates` accepts `{accommodationId, from, to, available, pricePerNight}` and answers `202 {updateId, accommodationId, chunks, status: "pending"}`. | fake |
 | API-02 | Invalid input is rejected with `{error: {code, message}}`: `400 INVALID_BODY` for a non-object body, missing, unknown or wrongly typed fields, empty `accommodationId`, or `pricePerNight` not a finite number `>= 0`; `400 INVALID_DATE` for a malformed or non-existent date or `to` before `from`; `400 RANGE_TOO_LARGE` above 366 days. | unit |
 | API-03 | `GET /accommodations/:id/sync-status` answers `404 NOT_FOUND` when no update was ever received for that id. | fake |
-| API-04 | Otherwise it answers `200` with `accommodationId`, `status`, `jobs {pending, inProgress, done, failed, superseded}`, `lastSyncedAt`, `nextAttemptAt`, `lastError {code, message, at}` or `null`, and `updates` (20 newest first, each with `updateId, from, to, available, pricePerNight, receivedAt, status, chunks {total, done}`). | fake |
+| API-04 | Otherwise it answers `200` with `accommodationId`, `status`, `jobs {pending, inProgress, done, failed, superseded}`, `lastSyncedAt`, `nextAttemptAt`, `lastError {code, at}` or `null` (the message was removed by SEC-09), and `updates` (20 newest first, each with `updateId, from, to, available, pricePerNight, receivedAt, status, chunks {total, done}`). | fake |
 | API-05 | Status derivation: an update is `superseded` if all jobs are superseded, `failed` if any job failed, `syncing` if any is in progress, `synced` if every job is done or superseded, else `pending`. The accommodation is `failed` if any update is failed, `pending` if any is pending or syncing, else `synced`. | unit |
 | API-06 | `GET /health` answers `200 {status: "ok"}` when the database answers a query and `503` otherwise. | manual |
 
@@ -184,6 +185,23 @@ portal + real PostgreSQL), **portal** (real Portal Sol + real PostgreSQL),
 | OPS-03 | `service/README.md` explains how to install, start, test and configure the service, including the portal URL. | manual |
 | OPS-04 | `scripts/trace.sh` prints, for every requirement ID in this file, the commits and test files that mention it, and lists IDs with neither. | manual |
 
+### SEC — hardening (D-13)
+
+| ID | Requirement | Verified by |
+|---|---|---|
+| SEC-01 | When `API_KEY` is set, `POST /updates`, `GET /accommodations/:id/sync-status` and `GET /metrics` require the header `X-Api-Key` equal to it (compared in constant time) and answer `401 UNAUTHORIZED` otherwise; `GET /health` never requires it. When `API_KEY` is unset nothing is required. The server listens on `HOST`, default `127.0.0.1`. | fake |
+| SEC-02 | A `Retry-After` from the portal is clamped to `PORTAL_MAX_RETRY_AFTER_SECONDS`; the limiter's sleep never exceeds the platform timer maximum, so a pause of any length costs no CPU. | unit |
+| SEC-03 | `POST /updates` answers `429 RATE_LIMITED` with `Retry-After` beyond `UPDATES_RATE_LIMIT_PER_MINUTE` requests per client address in a rolling minute, `429 QUEUE_FULL` when the accommodation already has `MAX_PENDING_JOBS_PER_ACCOMMODATION` pending or in-progress jobs, and `503 QUEUE_FULL` when `MAX_PENDING_JOBS` jobs are pending or in progress overall; nothing is written in those cases. | fake |
+| SEC-04 | `accommodationId` is at most 64 characters from `A-Z a-z 0-9 . _ -`; anything else is `400 INVALID_BODY`. | unit |
+| SEC-05 | `pricePerNight` is at most `99999999.99` with at most two decimals; anything else is `400 INVALID_BODY`. | unit |
+| SEC-06 | The portal client reads at most 64 KiB of a response body; a longer body is cut there and the response is classified by its status as usual. | unit |
+| SEC-07 | The HTTP server accepts bodies up to 16 KiB (`413 BODY_TOO_LARGE`), ends a request not completed within 10 s and closes a connection idle for 30 s. | fake |
+| SEC-08 | With `NODE_ENV=production`, `DATABASE_URL`, `PORTAL_API_KEY` and `API_KEY` have no defaults; start-up fails naming the missing variable. | unit |
+| SEC-09 | The status endpoint exposes `lastError {code, at}` only; the portal's message stays in the database and the logs. | fake |
+| SEC-10 | `GET /metrics` is behind the API key of SEC-01; `GET /health` answers only `status` and a fixed `reason`. | fake |
+| SEC-11 | Migrations run under a transaction-scoped advisory lock, so a failed migration releases the lock with its rollback and a later start-up does not hang. | fake |
+| SEC-12 | An `Idempotency-Key` header (1–128 characters) on `POST /updates` makes a repeated request with the same key answer `202` with the original `updateId` and `chunks`, creating nothing new. | fake |
+
 ## 7. Configuration (environment)
 
 | Variable | Default |
@@ -199,6 +217,13 @@ portal + real PostgreSQL), **portal** (real Portal Sol + real PostgreSQL),
 | `MAX_ATTEMPTS` | `8` |
 | `LEASE_SECONDS` | `60` |
 | `LOG_LEVEL` | `info` |
+| `HOST` | `127.0.0.1` (SEC-01; use `0.0.0.0` in a container) |
+| `API_KEY` | unset: endpoints open (SEC-01); required with `NODE_ENV=production` (SEC-08) |
+| `NODE_ENV` | unset; `production` removes the secret defaults (SEC-08) |
+| `PORTAL_MAX_RETRY_AFTER_SECONDS` | `300` (SEC-02) |
+| `UPDATES_RATE_LIMIT_PER_MINUTE` | `600` per client address (SEC-03) |
+| `MAX_PENDING_JOBS_PER_ACCOMMODATION` | `50` (SEC-03) |
+| `MAX_PENDING_JOBS` | `10000` (SEC-03) |
 
 ## 8. Alerts an on-call engineer would set
 
@@ -224,4 +249,5 @@ Left out on purpose, in the order they would be done next:
    `200` is taken as proof instead.
 4. **Day-level merge** of overlapping updates into minimal `PUT`s; FIFO plus
    superseding covers the common case.
-5. Authentication, deployment, dashboards.
+5. Identity beyond one shared API key (per-client keys, a gateway), deployment,
+   dashboards.

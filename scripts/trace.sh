@@ -4,7 +4,7 @@
 set -euo pipefail
 cd "$(git rev-parse --show-toplevel)"
 
-ids=$(grep -oE '^\| (DATA|API|SYNC|OBS|OPS)-[0-9]{2} ' SPEC.md | tr -d '| ')
+ids=$(grep -oE '^\| (DATA|API|SYNC|OBS|OPS|SEC)-[0-9]{2} ' SPEC.md | tr -d '| ')
 missing=0
 printf '%-9s %-8s %-9s %s\n' ID VERIFIED COMMITS TESTS
 for id in $ids; do
