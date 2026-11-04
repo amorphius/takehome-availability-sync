@@ -8,8 +8,14 @@ export function silentLogger() {
   return pino({ level: "silent" });
 }
 
-export function testServer(pool: Pool, metrics: Metrics = createMetrics()) {
+export interface TestServerOptions {
+  metrics?: Metrics;
+  apiKey?: string;
+}
+
+export function testServer(pool: Pool, options: TestServerOptions = {}) {
+  const metrics = options.metrics ?? createMetrics();
   const repository = new SyncRepository(pool);
-  const app = buildServer({ logger: silentLogger(), repository, metrics });
+  const app = buildServer({ logger: silentLogger(), repository, metrics, apiKey: options.apiKey });
   return { app, repository, metrics };
 }

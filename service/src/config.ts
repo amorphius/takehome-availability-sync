@@ -1,5 +1,9 @@
 export interface Config {
   port: number;
+  /** SEC-01: loopback by default; a container sets 0.0.0.0. */
+  host: string;
+  /** SEC-01: when set, the data endpoints and /metrics require it as X-Api-Key. */
+  apiKey: string | undefined;
   databaseUrl: string;
   portalUrl: string;
   portalApiKey: string;
@@ -33,6 +37,11 @@ function string(env: Env, name: string, fallback: string): string {
   return raw;
 }
 
+function optional(env: Env, name: string): string | undefined {
+  const raw = env[name];
+  return raw === undefined || raw.trim() === "" ? undefined : raw;
+}
+
 const LOG_LEVELS = ["fatal", "error", "warn", "info", "debug", "trace", "silent"];
 
 /** OPS-01: configuration from the environment; an invalid value names the variable. */
@@ -43,6 +52,8 @@ export function loadConfig(env: Env = process.env): Config {
   }
   return {
     port: integer(env, "PORT", 3000, 0, 65535),
+    host: string(env, "HOST", "127.0.0.1"),
+    apiKey: optional(env, "API_KEY"),
     databaseUrl: string(env, "DATABASE_URL", "postgres://sync:sync@localhost:5432/sync"),
     portalUrl: string(env, "PORTAL_URL", "http://localhost:4000").replace(/\/+$/, ""),
     portalApiKey: string(env, "PORTAL_API_KEY", "sol-demo-key"),

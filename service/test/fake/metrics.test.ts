@@ -37,7 +37,7 @@ function parse(text: string): Map<string, number> {
 
 test("OBS-02 OBS-04 OBS-05: /metrics exposes process, portal, retry, failure and pause metrics", async () => {
   const metrics = createMetrics();
-  const { app } = testServer(pool, metrics);
+  const { app } = testServer(pool, { metrics });
   const { worker } = testWorker(pool, { portalUrl: portal.url, observer: metrics.observer, config: { concurrency: 1 } });
   portal.respond([unavailable(), rateLimited(1), ok()]);
   const accepted = await app.inject({ method: "POST", url: "/updates", payload: update });
@@ -66,7 +66,7 @@ test("OBS-02 OBS-04 OBS-05: /metrics exposes process, portal, retry, failure and
 
 test("OBS-05: a job that gives up is counted by its last error code", async () => {
   const metrics = createMetrics();
-  const { app } = testServer(pool, metrics);
+  const { app } = testServer(pool, { metrics });
   const { worker } = testWorker(pool, { portalUrl: portal.url, observer: metrics.observer, config: { maxAttempts: 2 } });
   portal.respond(() => unavailable());
   await app.inject({ method: "POST", url: "/updates", payload: update });
@@ -83,7 +83,7 @@ test("OBS-03: sync_jobs{state} and the oldest pending age are read from the data
   const { silentLogger } = await import("../helpers/app.ts");
   const metrics = createMetrics();
   const gauges = createQueueGauges(metrics.registry, pool, silentLogger());
-  const { app } = testServer(pool, metrics);
+  const { app } = testServer(pool, { metrics });
   const { store } = testWorker(pool, { portalUrl: portal.url });
   const old = await store.acceptUpdate({ ...update, from: "2026-10-01", to: "2026-10-02" });
   await pool.query("update updates set received_at = now() - interval '90 seconds' where id = $1", [old.updateId]);

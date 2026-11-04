@@ -5,6 +5,8 @@ import { loadConfig, ConfigError } from "../../src/config.ts";
 test("OPS-01: defaults apply when the environment is empty", () => {
   const config = loadConfig({});
   assert.equal(config.port, 3000);
+  assert.equal(config.host, "127.0.0.1");
+  assert.equal(config.apiKey, undefined);
   assert.equal(config.databaseUrl, "postgres://sync:sync@localhost:5432/sync");
   assert.equal(config.portalUrl, "http://localhost:4000");
   assert.equal(config.portalApiKey, "sol-demo-key");
@@ -19,8 +21,10 @@ test("OPS-01: defaults apply when the environment is empty", () => {
 });
 
 test("OPS-01: values are read from the environment", () => {
-  const config = loadConfig({ PORT: "8080", PORTAL_URL: "http://portal:4000/", MAX_ATTEMPTS: "3", LOG_LEVEL: "debug" });
+  const config = loadConfig({ PORT: "8080", HOST: "0.0.0.0", API_KEY: "k", PORTAL_URL: "http://portal:4000/", MAX_ATTEMPTS: "3", LOG_LEVEL: "debug" });
   assert.equal(config.port, 8080);
+  assert.equal(config.host, "0.0.0.0");
+  assert.equal(config.apiKey, "k");
   assert.equal(config.portalUrl, "http://portal:4000");
   assert.equal(config.maxAttempts, 3);
   assert.equal(config.logLevel, "debug");
