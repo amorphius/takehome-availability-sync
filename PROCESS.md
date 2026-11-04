@@ -39,6 +39,17 @@ than pretend a black box was still a black box.
   behind by the test suite in the shared database, not a bug; the README now warns
   that tests truncate the database.
 
+## Security review, after the first version
+
+With the 33 requirements done I asked the agent for a security review of its own code.
+It read every file, ran `npm audit`, checked the history for secrets, and probed the
+cases it was unsure of instead of guessing: a huge `Retry-After` made every worker slot
+spin at 1 ms (Node's 32-bit timer overflow), a 900 KB `accommodationId` passed
+validation, an oversized price became a 500 from PostgreSQL. Twelve findings, all fixed
+as SEC-01..12 with the same one-requirement-per-commit rule. One test it wrote first
+measured heap growth to prove a response body was not buffered; that was flaky because
+the fake portal lives in the same process, and it was replaced by a counting stream.
+
 ## Left out, and next
 
 In the order I would do them: a re-queue endpoint for failed jobs (today an

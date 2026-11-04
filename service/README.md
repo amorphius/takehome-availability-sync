@@ -38,6 +38,13 @@ Everything is configured through the environment; the defaults match the compose
 | `MAX_ATTEMPTS` | `8` | attempts before a job is marked failed |
 | `LEASE_SECONDS` | `60` | after this long an in-progress job of a dead process is retried |
 | `LOG_LEVEL` | `info` | pino level |
+| `HOST` | `127.0.0.1` | bind address; `0.0.0.0` inside a container |
+| `API_KEY` | unset | when set, `POST /updates`, `GET …/sync-status` and `GET /metrics` require it as `X-Api-Key` |
+| `NODE_ENV` | unset | `production` makes `DATABASE_URL`, `PORTAL_API_KEY` and `API_KEY` mandatory |
+| `PORTAL_MAX_RETRY_AFTER_SECONDS` | `300` | a longer `Retry-After` from the portal is clamped to this |
+| `UPDATES_RATE_LIMIT_PER_MINUTE` | `600` | `POST /updates` per client address per rolling minute, then `429` |
+| `MAX_PENDING_JOBS_PER_ACCOMMODATION` | `50` | waiting jobs one accommodation may have, then `429 QUEUE_FULL` |
+| `MAX_PENDING_JOBS` | `10000` | waiting jobs overall, then `503 QUEUE_FULL` |
 
 Example against a portal on another host:
 
@@ -57,7 +64,21 @@ curl -s localhost:3000/metrics | grep -E '^(sync_|portal_)'
 curl -s localhost:3000/health
 ```
 
+With `API_KEY=…` set, add `-H 'x-api-key: …'` to the first three calls; `/health` stays open.
+A client that may retry a `POST` can send `Idempotency-Key: <its own id>`; the same key
+answers with the original `updateId` instead of creating a second update.
+
 Logs are JSON lines on stdout; pipe through `npx pino-pretty` to read them by eye.
+
+## Security posture
+
+The service is closed by default and bounds everything that crosses its edges (`SPEC.md`
+D-13, SEC-01..12): loopback bind, optional shared API key, 16 KiB bodies, request and
+connection timeouts, bounded ids and prices, per-client rate limit and queue caps, a
+clamped `Retry-After` and a 64 KiB cap on portal responses, no secret defaults in
+production, and the portal's error text kept out of API responses. In production put it
+behind a gateway that knows who the caller is; the shared key is a stop-gap, not identity.
+Use `sslmode=verify-full` in `DATABASE_URL` when the database is not on the same host.
 
 ## Tests
 
@@ -85,7 +106,7 @@ src/
   db/                     pg pool, SQL migrations applied at start-up
   domain/                 pure logic: dates, validation, status derivation, backoff
   sync/                   repository (SQL), portal client, rate limiter, worker
-  http/                   Fastify server and routes
+  http/                   Fastify server, API-key hook, client rate limit, routes
   observability/          pino logger, Prometheus metrics, queue gauges
 test/
   unit/                   no I/O
