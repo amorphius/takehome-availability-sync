@@ -1,72 +1,31 @@
 # PROCESS
 
-How this was built, in one sitting with Claude Code as the coding agent.
+Built in one sitting with Claude Code as the coding agent.
 
-## What I delegated and what I kept
+**What I delegated and what I kept.** I kept the decisions: the design in `SPEC.md`,
+the choice to make it atomic requirements with stable IDs and one requirement per
+commit with its own test, and every "good enough" call. The agent wrote nearly all
+code, tests and docs, one requirement at a time; I read each diff and test run
+before the commit. Before cloning, the agent audited the template and the Portal Sol
+image without running them (provenance, layers against `node:24-alpine`, the bundled
+server, trivy). The bundle showed the portal's hidden defaults; I still measured the
+limits empirically (spec section 2) and say so here.
 
-I kept the decisions and the shape of the work: the design in `SPEC.md`, the choice
-to turn it into atomic requirements with stable IDs and to make each commit
-implement one (or a few coupled) requirements with its own test, and every "is this
-good enough" call along the way. The agent wrote nearly all of the code, the tests,
-the README and the probe script, one requirement at a time, and I read each diff
-and test run before the commit went in.
+**Where the agent was wrong, and how I noticed.** Twice a commit landed on red: the
+shell chained the commit after a `grep` that succeeded whatever the tests did; the
+summary in the output gave it away, the commits were amended and the gate now checks
+exit codes. A test expected calendar-month chunks where the code correctly chunks by
+31 days. A 429 test assumed in-flight calls could be recalled. A failing assertion
+hung the run because the worker kept going, fixed with a helper that always stops it
+plus per-test timeouts. An update with no jobs derived as "synced". A "stuck"
+accommodation in a manual run was a test fixture in the shared database. In the
+security pass that followed (SEC-01..12), a heap-growth assertion was flaky because
+the fake portal shares the process; it became a counting stream. The first commit
+check did not even parse in bash. The linter, added after 40 commits, found one real
+thing.
 
-Before cloning anything I had the agent audit the template repository and the
-Portal Sol image without running them: provenance, base-image layers compared with
-the official `node:24-alpine`, a read of the bundled server, and a trivy scan.
-That read of the bundle also showed the portal's hidden defaults. I chose to keep
-measuring the limits empirically (section 2 of the spec) and to say so here, rather
-than pretend a black box was still a black box.
-
-## Where the agent got it wrong, and how I noticed
-
-- **Commits landed on red.** Twice a commit went in while a test or the type check
-  was failing, because the shell command chained the commit after a `grep` that
-  succeeded whatever the test result. The test summary in the output gave it away;
-  the commits were amended and the gate was changed to check the runner's exit code.
-- **A test asserted the wrong chunk boundary.** The agent expected a 1 Oct to 15 Dec
-  update to chunk as calendar months; the code correctly chunks by 31 days
-  (Nov 1 to Dec 1). The failing test, not the code, was the bug.
-- **The 429 test assumed in-flight calls could be recalled.** With two slots, two
-  calls are already out when the first 429 arrives. The assertion was rewritten
-  around a third job that must wait out the pause.
-- **A failing assertion hung the whole run** because the worker kept running.
-  Spotted when the runner never exited; fixed with a `withWorker` helper that
-  always stops the worker, plus per-test timeouts in the npm scripts.
-- **An update with no jobs derived as "synced"** (`every` on an empty list). The
-  unit test for API-05 caught it.
-- **A manual run looked stuck** for one accommodation. It was a lease fixture left
-  behind by the test suite in the shared database, not a bug; the README now warns
-  that tests truncate the database.
-
-## Security review, after the first version
-
-With the 33 requirements done I asked the agent for a security review of its own code.
-It read every file, ran `npm audit`, checked the history for secrets, and probed the
-cases it was unsure of instead of guessing: a huge `Retry-After` made every worker slot
-spin at 1 ms (Node's 32-bit timer overflow), a 900 KB `accommodationId` passed
-validation, an oversized price became a 500 from PostgreSQL. Twelve findings, all fixed
-as SEC-01..12 with the same one-requirement-per-commit rule. One test it wrote first
-measured heap growth to prove a response body was not buffered; that was flaky because
-the fake portal lives in the same process, and it was replaced by a counting stream.
-
-## The harness, put into the repository
-
-The rules I worked under were in my head and in the chat: spec row first, one requirement
-per commit, a gate script in a scratch folder. Avantio's posting treats that harness as a
-versioned engineering asset, and it should be: `AGENTS.md` now states the loop,
-`scripts/gate.sh` is the one check (typecheck, Biome, both test tiers, the trace),
-`scripts/check-commit-msg.sh` refuses a behaviour commit that names no requirement or an
-ID that is not in the spec, and CI runs the same gate plus the real-portal suite. The first
-version of the commit check did not even parse: bash could not take the regex inline. The
-linter arrived after 40 commits, so its first run reformatted 23 files; the only real
-finding was one string concatenation.
-
-## Left out, and next
-
-In the order I would do them: a re-queue endpoint for failed jobs (today an
-`UPDATE`); a shared limiter so a second replica is safe; read-back verification of
-the portal state after each chunk; merging overlapping updates at day level. The
-`ext-batch` and `ext-circuit-breaker` image tags on the registry suggest where the
-live session goes; the worker's outcome switch and the limiter are the two places
-that would change.
+**Left out, in the order I would do them.** A re-queue endpoint for failed jobs; a
+shared limiter so a second replica is safe; read-back of the portal after each chunk;
+day-level merge of overlapping updates. The `ext-batch` and `ext-circuit-breaker`
+image tags on the registry suggest the live round; the worker's outcome switch and the
+limiter are the two places that would change.
