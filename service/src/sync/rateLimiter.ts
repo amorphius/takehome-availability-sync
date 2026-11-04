@@ -5,6 +5,8 @@ export interface LimiterClock {
 
 /** SEC-02: Node's timers take a signed 32-bit delay; above it setTimeout fires after 1 ms and a waiting loop spins. */
 export const MAX_TIMER_MS = 2_147_483_647;
+/** The portal's window; the configured margin is added on top (SYNC-12). */
+export const PORTAL_WINDOW_MS = 60_000;
 
 export const realClock: LimiterClock = {
   now: () => Date.now(),

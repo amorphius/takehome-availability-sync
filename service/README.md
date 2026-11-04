@@ -32,7 +32,8 @@ Everything is configured through the environment; the defaults match the compose
 | `PORTAL_URL` | `http://localhost:4000` | Portal Sol base URL |
 | `PORTAL_API_KEY` | `sol-demo-key` | sent as `X-Api-Key` |
 | `PORTAL_TIMEOUT_MS` | `5000` | per-attempt timeout of a portal call |
-| `PORTAL_RATE_LIMIT_PER_MINUTE` | `30` | call starts allowed per rolling minute |
+| `PORTAL_RATE_LIMIT_PER_MINUTE` | `30` | call starts allowed per rolling window |
+| `PORTAL_RATE_LIMIT_MARGIN_MS` | `1000` | added to the 60 s window; covers the gap between sending and arriving |
 | `WORKER_CONCURRENCY` | `4` | portal calls in flight at once |
 | `WORKER_POLL_MS` | `250` | idle poll interval of the worker |
 | `MAX_ATTEMPTS` | `8` | attempts before a job is marked failed |

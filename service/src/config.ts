@@ -9,6 +9,8 @@ export interface Config {
   portalApiKey: string;
   portalTimeoutMs: number;
   portalRateLimitPerMinute: number;
+  /** SYNC-12: added to the 60 s window so a call sent at the edge never arrives inside the portal's window. */
+  portalRateLimitMarginMs: number;
   portalMaxRetryAfterSeconds: number;
   workerConcurrency: number;
   workerPollMs: number;
@@ -72,6 +74,7 @@ export function loadConfig(env: Env = process.env): Config {
     portalApiKey: secret(env, "PORTAL_API_KEY", "sol-demo-key", production)!,
     portalTimeoutMs: integer(env, "PORTAL_TIMEOUT_MS", 5000, 1),
     portalRateLimitPerMinute: integer(env, "PORTAL_RATE_LIMIT_PER_MINUTE", 30, 1),
+    portalRateLimitMarginMs: integer(env, "PORTAL_RATE_LIMIT_MARGIN_MS", 1000, 0),
     portalMaxRetryAfterSeconds: integer(env, "PORTAL_MAX_RETRY_AFTER_SECONDS", 300, 1),
     workerConcurrency: integer(env, "WORKER_CONCURRENCY", 4, 1, 100),
     workerPollMs: integer(env, "WORKER_POLL_MS", 250, 1),

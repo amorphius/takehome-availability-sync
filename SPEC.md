@@ -160,7 +160,7 @@ portal + real PostgreSQL), **portal** (real Portal Sol + real PostgreSQL),
 | SYNC-09 | A transient failure on attempt `MAX_ATTEMPTS` makes the job `failed` with `finished_at` and the last error kept. | fake |
 | SYNC-10 | On `client_error` the job becomes `failed` immediately, with the portal's error code and message. | fake |
 | SYNC-11 | On `rate_limited` the job returns to `pending` with `next_attempt_at = now() + Retry-After`, the attempt is not counted, and no portal call is started by any slot until that time. | fake |
-| SYNC-12 | The limiter allows at most `PORTAL_RATE_LIMIT_PER_MINUTE` call starts in any rolling 60 s window, counting every attempt whatever its outcome. | unit |
+| SYNC-12 | The limiter allows at most `PORTAL_RATE_LIMIT_PER_MINUTE` call starts in any rolling window of 60 s plus `PORTAL_RATE_LIMIT_MARGIN_MS`, counting every attempt whatever its outcome. The margin exists because the service stamps a call when it starts and the portal when it arrives: the 31st call sent exactly 60 s after the first can reach the portal less than 60 s after the first did. | unit |
 | SYNC-13 | At most `WORKER_CONCURRENCY` portal calls are in flight at once. | unit |
 | SYNC-14 | At start-up and every 60 s, `in_progress` jobs whose `locked_at` is older than `LEASE_SECONDS` are returned to `pending`. | fake |
 | SYNC-15 | After the queue drains, the portal's day-by-day state equals the latest accepted update for every day touched, including when two updates overlap. | portal |
@@ -212,6 +212,7 @@ portal + real PostgreSQL), **portal** (real Portal Sol + real PostgreSQL),
 | `PORTAL_API_KEY` | `sol-demo-key` |
 | `PORTAL_TIMEOUT_MS` | `5000` |
 | `PORTAL_RATE_LIMIT_PER_MINUTE` | `30` |
+| `PORTAL_RATE_LIMIT_MARGIN_MS` | `1000` (SYNC-12) |
 | `WORKER_CONCURRENCY` | `4` |
 | `WORKER_POLL_MS` | `250` |
 | `MAX_ATTEMPTS` | `8` |

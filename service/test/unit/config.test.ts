@@ -12,6 +12,7 @@ test("OPS-01: defaults apply when the environment is empty", () => {
   assert.equal(config.portalApiKey, "sol-demo-key");
   assert.equal(config.portalTimeoutMs, 5000);
   assert.equal(config.portalRateLimitPerMinute, 30);
+  assert.equal(config.portalRateLimitMarginMs, 1000);
   assert.equal(config.portalMaxRetryAfterSeconds, 300);
   assert.equal(config.workerConcurrency, 4);
   assert.equal(config.workerPollMs, 250);

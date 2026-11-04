@@ -7,7 +7,7 @@ import assert from "node:assert/strict";
 import { testPool } from "../helpers/db.ts";
 import { SyncRepository } from "../../src/sync/repository.ts";
 import { PortalClient } from "../../src/sync/portalClient.ts";
-import { SlidingWindowLimiter } from "../../src/sync/rateLimiter.ts";
+import { SlidingWindowLimiter, PORTAL_WINDOW_MS } from "../../src/sync/rateLimiter.ts";
 import { Worker } from "../../src/sync/worker.ts";
 import { silentLogger } from "../helpers/app.ts";
 import { withWorker, waitUntilSettled } from "../helpers/worker.ts";
@@ -17,6 +17,7 @@ import type { Pool } from "../../src/db/pool.ts";
 const PORTAL_URL = process.env.PORTAL_URL ?? "http://localhost:4000";
 const API_KEY = process.env.PORTAL_API_KEY ?? "sol-demo-key";
 const LIMIT = 30;
+const MARGIN_MS = 1000;
 
 let pool: Pool;
 let store: SyncRepository;
@@ -37,7 +38,7 @@ function worker(concurrency = 4) {
   return new Worker({
     store,
     portal: new PortalClient({ baseUrl: PORTAL_URL, apiKey: API_KEY, timeoutMs: 5000 }),
-    limiter: new SlidingWindowLimiter(LIMIT),
+    limiter: new SlidingWindowLimiter(LIMIT, PORTAL_WINDOW_MS + MARGIN_MS),
     logger: silentLogger(),
     config: { concurrency, pollMs: 100, maxAttempts: 8, leaseSeconds: 60 },
   });
@@ -46,8 +47,14 @@ function worker(concurrency = 4) {
 /** Day `offset` from today, as the portal counts days. */
 const day = (offset: number) => formatDate(addDays(new Date(), offset));
 
+/** The portal's random 503 applies to reads too; a verification read retries a few times. */
 async function portalDays(id: string, from: string, to: string) {
-  const response = await fetch(`${PORTAL_URL}/api/v1/accommodations/${id}?from=${from}&to=${to}`, { headers: { "x-api-key": API_KEY } });
+  let response!: Response;
+  for (let attempt = 0; attempt < 6; attempt++) {
+    response = await fetch(`${PORTAL_URL}/api/v1/accommodations/${id}?from=${from}&to=${to}`, { headers: { "x-api-key": API_KEY } });
+    if (response.status !== 503) break;
+    await new Promise((r) => setTimeout(r, 300));
+  }
   assert.equal(response.status, 200, `portal GET ${id}`);
   return ((await response.json()) as { days: { date: string; available: boolean; pricePerNight: number }[] }).days;
 }

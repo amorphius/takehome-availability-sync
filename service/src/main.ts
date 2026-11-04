@@ -4,7 +4,7 @@ import { createPool } from "./db/pool.ts";
 import { migrate } from "./db/migrate.ts";
 import { SyncRepository } from "./sync/repository.ts";
 import { PortalClient } from "./sync/portalClient.ts";
-import { SlidingWindowLimiter } from "./sync/rateLimiter.ts";
+import { SlidingWindowLimiter, PORTAL_WINDOW_MS } from "./sync/rateLimiter.ts";
 import { Worker } from "./sync/worker.ts";
 import { buildServer } from "./http/server.ts";
 import { createMetrics } from "./observability/metrics.ts";
@@ -38,7 +38,7 @@ const worker = new Worker({
     timeoutMs: config.portalTimeoutMs,
     maxRetryAfterSeconds: config.portalMaxRetryAfterSeconds,
   }),
-  limiter: new SlidingWindowLimiter(config.portalRateLimitPerMinute),
+  limiter: new SlidingWindowLimiter(config.portalRateLimitPerMinute, PORTAL_WINDOW_MS + config.portalRateLimitMarginMs),
   logger: log.child({ component: "worker" }),
   config: {
     concurrency: config.workerConcurrency,
