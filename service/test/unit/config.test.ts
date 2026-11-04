@@ -36,3 +36,13 @@ test("OPS-01: an invalid value fails with a message naming the variable", () => 
   assert.throws(() => loadConfig({ PORT: "70000" }), /PORT/);
   assert.throws(() => loadConfig({ LOG_LEVEL: "loud" }), /LOG_LEVEL/);
 });
+
+test("SEC-08: NODE_ENV=production removes the secret defaults and names what is missing", () => {
+  const full = { NODE_ENV: "production", DATABASE_URL: "postgres://u:p@db/sync", PORTAL_API_KEY: "real", API_KEY: "ours" };
+  assert.equal(loadConfig(full).portalApiKey, "real");
+  for (const name of ["DATABASE_URL", "PORTAL_API_KEY", "API_KEY"] as const) {
+    const { [name]: _dropped, ...env } = full;
+    assert.throws(() => loadConfig(env), (e: unknown) => e instanceof ConfigError && (e as Error).message === `${name} is required when NODE_ENV=production`);
+  }
+  assert.equal(loadConfig({ NODE_ENV: "development" }).portalApiKey, "sol-demo-key", "outside production the defaults stay");
+});
