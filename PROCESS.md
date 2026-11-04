@@ -1,6 +1,7 @@
 # PROCESS
 
-Built in one sitting with Claude Code as the coding agent.
+Built over two sessions, an evening and the next morning, with Claude Code as the coding
+agent.
 
 **What I delegated and what I kept.** I kept the decisions: the design in `SPEC.md`,
 the choice to make it atomic requirements with stable IDs and one requirement per
