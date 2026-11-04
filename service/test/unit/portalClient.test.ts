@@ -64,3 +64,38 @@ test("SEC-02: a Retry-After above the ceiling is clamped to it", async () => {
   assert.deepEqual((await capped.putAvailability("acc-1003", body)).outcome, { kind: "rate_limited", status: 429, retryAfterSeconds: 17 }, "below the ceiling it is kept");
   assert.deepEqual((await capped.putAvailability("acc-1003", body)).outcome, { kind: "rate_limited", status: 429, retryAfterSeconds: 30 }, "the 60 s fallback is clamped too");
 });
+
+test("SEC-06: a response body is read only up to the cap; the status still decides the outcome", async () => {
+  portal.respond([{ status: 503, body: "abcdefghijklmnop" }]);
+  const tiny = new PortalClient({ baseUrl: portal.url, apiKey: "k", timeoutMs: 2000, maxBodyBytes: 10 });
+  const cut = (await tiny.putAvailability("acc-1003", body)).outcome;
+  assert.deepEqual(cut, { kind: "unavailable", status: 503, code: "UNKNOWN", message: "abcdefghij" });
+
+  // An endless body: the client must stop pulling at the cap and cancel the stream.
+  let pulled = 0;
+  let cancelled = false;
+  const endless = (status: number) =>
+    new Response(
+      new ReadableStream<Uint8Array>({
+        pull(controller) {
+          pulled++;
+          controller.enqueue(new Uint8Array(1024).fill(120));
+        },
+        cancel() {
+          cancelled = true;
+        },
+      }),
+      { status, headers: { "content-type": "text/plain" } },
+    );
+  const streaming = new PortalClient({ baseUrl: "http://portal.test", apiKey: "k", timeoutMs: 2000, fetch: async () => endless(503) });
+  const big = (await streaming.putAvailability("acc-1003", body)).outcome;
+  assert.equal(big.kind, "unavailable");
+  assert.ok(big.kind === "unavailable" && big.message.length <= 200);
+  assert.ok(pulled >= 64 && pulled <= 80, `pulled ${pulled} KiB chunks for a 64 KiB cap`);
+  assert.equal(cancelled, true, "the rest of the stream was cancelled");
+
+  pulled = 0;
+  const okStream = new PortalClient({ baseUrl: "http://portal.test", apiKey: "k", timeoutMs: 2000, fetch: async () => endless(200) });
+  assert.equal((await okStream.putAvailability("acc-1003", body)).outcome.kind, "success", "a 200 with junk is still success");
+  assert.ok(pulled <= 80);
+});

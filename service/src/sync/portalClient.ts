@@ -26,6 +26,8 @@ export interface PortalClientOptions {
   timeoutMs: number;
   /** SEC-02: a Retry-After above this is clamped to it. */
   maxRetryAfterSeconds?: number;
+  /** SEC-06: bytes of a response body read before the rest is discarded. */
+  maxBodyBytes?: number;
   fetch?: typeof fetch;
 }
 
@@ -33,6 +35,28 @@ export interface PortalClientOptions {
 const DEFAULT_RETRY_AFTER_SECONDS = 60;
 /** SEC-02: default ceiling for a Retry-After; the portal never asked for more than 42 s in the probe. */
 export const DEFAULT_MAX_RETRY_AFTER_SECONDS = 300;
+/** SEC-06: the documented bodies are under 200 bytes; nothing useful comes after 64 KiB. */
+export const DEFAULT_MAX_BODY_BYTES = 64 * 1024;
+
+/** Reads at most `maxBytes` of the body, then cancels the stream so a huge answer never lands in memory. */
+async function readBounded(response: Response, maxBytes: number): Promise<string> {
+  const body = response.body;
+  if (!body) return "";
+  const reader = body.getReader();
+  const chunks: Uint8Array[] = [];
+  let total = 0;
+  try {
+    while (total < maxBytes) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      chunks.push(value);
+      total += value.byteLength;
+    }
+  } finally {
+    await reader.cancel().catch(() => undefined);
+  }
+  return Buffer.concat(chunks, Math.min(total, maxBytes)).toString("utf8");
+}
 
 function errorBody(text: string): { code: string; message: string } {
   try {
@@ -51,6 +75,7 @@ export class PortalClient {
   readonly #apiKey: string;
   readonly #timeoutMs: number;
   readonly #maxRetryAfterSeconds: number;
+  readonly #maxBodyBytes: number;
   readonly #fetch: typeof fetch;
 
   constructor(options: PortalClientOptions) {
@@ -58,6 +83,7 @@ export class PortalClient {
     this.#apiKey = options.apiKey;
     this.#timeoutMs = options.timeoutMs;
     this.#maxRetryAfterSeconds = options.maxRetryAfterSeconds ?? DEFAULT_MAX_RETRY_AFTER_SECONDS;
+    this.#maxBodyBytes = options.maxBodyBytes ?? DEFAULT_MAX_BODY_BYTES;
     this.#fetch = options.fetch ?? fetch;
   }
 
@@ -78,7 +104,14 @@ export class PortalClient {
       const cause = (error as { cause?: { message?: string } }).cause;
       return done({ kind: "network_error", message: cause?.message ?? (error as Error).message });
     }
-    const text = await response.text();
+    let text: string;
+    try {
+      text = await readBounded(response, this.#maxBodyBytes);
+    } catch (error) {
+      const name = (error as { name?: string }).name;
+      if (name === "TimeoutError" || name === "AbortError") return done({ kind: "timeout" });
+      return done({ kind: "network_error", message: (error as Error).message });
+    }
     if (response.ok) {
       let daysUpdated = 0;
       try {
