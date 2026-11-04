@@ -122,6 +122,58 @@ queue; an update's status is derived from its jobs (API-05).
 | D-13 | Every value that crosses the boundary is bounded before use: client bodies (size, id, price), portal answers (`Retry-After`, body size), the environment (no secret defaults in production). A shared API key guards the data endpoints until a gateway does. | Added after a security review of the first version (SEC-01..12). None of it changes the sync behaviour; each is a cap or a check at the edge, so a hostile client or a broken portal costs bounded memory, CPU and queue space. The key is a stop-gap: it keeps the service closed by default, not a substitute for real identity. |
 | D-14 | The harness that produced this repository is part of it: the workflow in `AGENTS.md`, one gate script every commit must pass, a commit-message check, and CI that runs the same gate. | Added after the first version. The spec is the context an agent consumes; the gate and the commit check are the control loop that keeps its output honest; CI makes the loop the same for everyone. Keeping them in the repository means a reviewer, or the next agent, works under the same rules without being told. Cost: a few files and a lint pass over code written before the linter existed. |
 
+### Considered alternatives for the queue (D-01)
+
+Each one as it would look here, why it lost, and what would make it win.
+
+- **In-memory queue in the process.** An array of jobs and a worker loop; the simplest
+  code. Rejected because a crash between the `202` and the portal call loses the update,
+  which section 1 forbids, and it forces a single instance forever. Right only for work
+  that may be lost.
+- **A job library on top of PostgreSQL** (`pg-boss`, `graphile-worker`). The same outbox
+  pattern with retries, scheduling and `SKIP LOCKED` claims already written. Rejected
+  because the per-accommodation ordering (D-03) and the superseding rule (D-04) are the
+  hard parts, and neither library expresses "do not claim while an older job of the same
+  key is unfinished" without a custom query; the library would own the table and the one
+  query that matters would still be ours. Right when ordering is plain FIFO and cron,
+  dead-letter and dashboard features are wanted for free.
+- **Redis-backed queue** (BullMQ). Fast claims, delayed retries, per-queue rate limiting,
+  and groups that come close to per-key ordering. Rejected because it adds a second
+  stateful system whose write is not atomic with the update's insert: after a crash the
+  row and the message can disagree, so the outbox table would still be needed to close
+  that gap. Right once several services share one job infrastructure or throughput is
+  far beyond one table.
+- **A broker** (RabbitMQ, SQS, Kafka). The canonical queue between services. Rejected for
+  the same atomicity reason, plus one more: strict per-accommodation order across retries
+  is awkward in all three. RabbitMQ and SQS standard queues do not order across
+  redelivery; SQS FIFO orders by message group but a retried message blocks its group;
+  Kafka orders per partition but has no delayed retry, so a failing accommodation stalls
+  its partition or needs retry topics. Right when sender and consumer are different
+  services; the outbox table then becomes what a relay publishes from, a natural second
+  step.
+- **MongoDB as the outbox.** Offered by the template. One document per update with the
+  chunk jobs embedded, claimed with an atomic `findOneAndUpdate` on `state` and
+  `nextAttemptAt`, ordered by an insertion counter. Rejected here because the provided
+  `mongo:8` runs standalone, without multi-document transactions, so superseding older
+  jobs and inserting the new update could not be one atomic step, and per-accommodation
+  order would need a lock field on an accommodation document instead of the `NOT EXISTS`
+  clause. Workable where MongoDB is the system of record; there the model is one document
+  per accommodation holding its ordered queue.
+- **Push instead of poll** (`LISTEN`/`NOTIFY`). Keeps the table, wakes workers on insert
+  instead of every `WORKER_POLL_MS`. Deferred, not rejected: polling costs nothing
+  measurable against a 30-calls-a-minute budget, and `NOTIFY` adds a connection that must
+  be reconnected on failure. Right when idle latency matters or many instances poll.
+- **One worker per accommodation** (actor model). Each accommodation gets an in-order
+  mailbox and a single consumer, which makes ordering trivial. Rejected because the order
+  then lives in memory and is lost on restart, and because the shared rate limit across
+  all actors is the real constraint. The claim query gives the same per-key serialisation
+  with durable state.
+
+Whatever carries the jobs, two things stay true: the portal's `PUT` is idempotent, so
+replay after a crash must be safe; and the rate limit is global, so the limiter must be
+shared across consumers. The table satisfies the first today and defers the second
+(section 9).
+
 ## 6. Requirements
 
 "Verified by" names the test kind: **unit** (no I/O), **fake** (in-process fake
